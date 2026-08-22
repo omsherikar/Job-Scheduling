@@ -59,6 +59,46 @@ func NewJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, qu
 	return id
 }
 
+func NewSchedule(t *testing.T, ctx context.Context, pool *pgxpool.Pool, queueID uuid.UUID, cron, tz, overlap, catchup string, nextRunAt time.Time) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	Must(t, pool.QueryRow(ctx, `insert into schedules
+		(queue_id, name, cron_expr, timezone, job_type, overlap_policy, catchup_policy, next_run_at)
+		values ($1, $2, $3, $4, 'noop', $5, $6, $7) returning id`,
+		queueID, uuid.NewString(), cron, tz, overlap, catchup, nextRunAt).Scan(&id))
+	return id
+}
+
+func NewScheduledJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, queueID, policyID uuid.UUID, delay time.Duration) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	Must(t, pool.QueryRow(ctx, `insert into jobs
+		(project_id, queue_id, type, retry_policy_id, status, run_at)
+		values ($1, $2, 'noop', $3, 'scheduled', fl.now() + make_interval(secs => $4)) returning id`,
+		projectID, queueID, policyID, delay.Seconds()).Scan(&id))
+	return id
+}
+
+func NewRetryWaitJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, queueID, policyID uuid.UUID, delay time.Duration) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	Must(t, pool.QueryRow(ctx, `insert into jobs
+		(project_id, queue_id, type, retry_policy_id, status, run_at)
+		values ($1, $2, 'noop', $3, 'retry_wait', fl.now() + make_interval(secs => $4)) returning id`,
+		projectID, queueID, policyID, delay.Seconds()).Scan(&id))
+	return id
+}
+
+func NewExecution(t *testing.T, ctx context.Context, pool *pgxpool.Pool, queueID, workerID uuid.UUID, outcome string, finishedAt time.Time) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	Must(t, pool.QueryRow(ctx, `insert into job_executions
+		(job_id, queue_id, attempt, fence, worker_id, outcome, started_at, finished_at)
+		values ($1, $2, 1, 1, $3, $4::exec_outcome, $5, $5) returning id`,
+		uuid.New(), queueID, workerID, outcome, finishedAt).Scan(&id))
+	return id
+}
+
 func NewUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.UUID {
 	t.Helper()
 	var id uuid.UUID
