@@ -16,3 +16,11 @@ pgdata/
 docs/
 .claude/
 CLAUDE.md
+
+*.test
+/claimcap
+/api
+/worker
+/scheduler
+/archiver
+/migrate
