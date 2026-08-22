@@ -53,28 +53,7 @@ update job_executions set outcome = $2::exec_outcome, finished_at = fl.now(),
 
 const dropLeaseSQL = `delete from job_leases where job_id = $1`
 
-const failJobSQL = `
-update jobs j set
-  status = case
-    when $3 then 'dead_letter'::job_status
-    when j.attempt_count >= rp.max_attempts then 'dead_letter'::job_status
-    else 'retry_wait'::job_status end,
-  run_at = case
-    when $3 or j.attempt_count >= rp.max_attempts then j.run_at
-    else fl.now() + fl.backoff(rp.kind, rp.base_delay_ms, rp.max_delay_ms, rp.jitter, j.attempt_count) end,
-  finished_at = case when $3 or j.attempt_count >= rp.max_attempts then fl.now() else null end,
-  worker_id = null
-from retry_policies rp
-where j.id = $1 and j.fence = $2 and j.status = 'running' and rp.id = j.retry_policy_id
-returning j.queue_id, j.project_id, j.status`
-
-const deadLetterSQL = `
-insert into dead_letter_jobs
-  (job_id, queue_id, project_id, reason, last_error_class, last_error_message, execution_history)
-values ($1, $2, $3, $4, $5, $6,
-  coalesce((select jsonb_agg(to_jsonb(e) order by e.attempt)
-              from job_executions e where e.job_id = $1), '[]'::jsonb))
-on conflict (job_id) do nothing`
+const reportFailureSQL = `select queue from fl.report_failure($1, $2, $3::exec_outcome, $4, $5, $6)`
 
 const eventSQL = `
 insert into events (topic, entity_id, project_id, payload)
@@ -123,7 +102,7 @@ func Complete(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence in
 	return tx.Commit(ctx)
 }
 
-func Fail(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence int64, exec uuid.UUID, cause error) error {
+func Fail(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence int64, cause error) error {
 	permanent := errors.Is(cause, ErrPermanent)
 	outcome := "retryable_error"
 	if permanent {
@@ -140,9 +119,8 @@ func Fail(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence int64,
 	}
 	defer tx.Rollback(ctx)
 
-	var queueID, projectID uuid.UUID
-	var status string
-	err = tx.QueryRow(ctx, failJobSQL, jobID, fence, permanent).Scan(&queueID, &projectID, &status)
+	var queueID uuid.UUID
+	err = tx.QueryRow(ctx, reportFailureSQL, jobID, fence, outcome, outcome, msg, permanent).Scan(&queueID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrFenced
 	}
@@ -150,28 +128,7 @@ func Fail(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence int64,
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, closeExecSQL, exec, outcome, outcome, msg); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, dropLeaseSQL, jobID); err != nil {
-		return err
-	}
-
-	topic := "job.failed"
-	if status == "dead_letter" {
-		topic = "job.dead_lettered"
-		reason := "attempts_exhausted"
-		if permanent {
-			reason = "permanent_error"
-		}
-		if _, err := tx.Exec(ctx, deadLetterSQL, jobID, queueID, projectID, reason, outcome, msg); err != nil {
-			return err
-		}
-	}
 	if err := Release(ctx, tx, queueID, 1); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, eventSQL, topic, jobID, projectID, status, outcome); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

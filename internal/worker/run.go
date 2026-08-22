@@ -136,7 +136,7 @@ func report(pool *pgxpool.Pool, c jobs.Claimed, exec jobs.Execution, herr error)
 		if herr == nil {
 			err = jobs.Complete(ctx, pool, c.ID, c.Fence, exec.ID)
 		} else {
-			err = jobs.Fail(ctx, pool, c.ID, c.Fence, exec.ID, herr)
+			err = jobs.Fail(ctx, pool, c.ID, c.Fence, herr)
 		}
 		if err == nil || errors.Is(err, jobs.ErrFenced) || !transient(err) {
 			break
