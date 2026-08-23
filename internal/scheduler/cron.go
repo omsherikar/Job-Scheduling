@@ -32,26 +32,19 @@ values ($1, $2, $3, $4, $5, 'queued', $6, $6, $7)
 on conflict (schedule_id, scheduled_for) where schedule_id is not null do nothing
 returning id`
 
-const scheduledEventSQL = `
-insert into events (topic, entity_id, project_id, payload)
-values ('job.scheduled', $1, $2, '{}'::jsonb)`
+const scheduledEventSQL = `select fl.emit('job.scheduled', $1, $2, '{}'::jsonb)`
 
-const overlapEventSQL = `
-insert into events (topic, entity_id, project_id, payload)
-values ('schedule.tick_skipped_overlap', $1, $2, '{}'::jsonb)`
+const overlapEventSQL = `select fl.emit('schedule.tick_skipped_overlap', $1, $2, '{}'::jsonb)`
 
 const ticksSkippedEventSQL = `
-insert into events (topic, entity_id, project_id, payload)
-values ('schedule.ticks_skipped', $1, $2, jsonb_build_object('count', $3::int))`
+select fl.emit('schedule.ticks_skipped', $1, $2, jsonb_build_object('count', $3::int))`
 
 const advanceScheduleSQL = `
 update schedules set next_run_at = $2, last_fired_for = coalesce($3, last_fired_for) where id = $1`
 
 const disableScheduleSQL = `update schedules set enabled = false where id = $1`
 
-const scheduleErrorEventSQL = `
-insert into events (topic, entity_id, project_id, payload)
-values ('schedule.error', $1, $2, '{}'::jsonb)`
+const scheduleErrorEventSQL = `select fl.emit('schedule.error', $1, $2, '{}'::jsonb)`
 
 func nextTick(expr, tz string, after time.Time) (time.Time, error) {
 	loc, err := time.LoadLocation(tz)

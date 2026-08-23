@@ -17,6 +17,7 @@ type Config struct {
 	Breaker   time.Duration
 	Age       time.Duration
 	Partition time.Duration
+	Notify    time.Duration
 
 	Batch      int
 	AgeAfter   time.Duration
@@ -35,6 +36,7 @@ func DefaultConfig() Config {
 		Breaker:   5 * time.Second,
 		Age:       30 * time.Second,
 		Partition: time.Hour,
+		Notify:    20 * time.Millisecond,
 
 		Batch:      100,
 		AgeAfter:   5 * time.Minute,
@@ -81,6 +83,13 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 	})
 	start("partition", cfg.Partition, func(ctx context.Context) error {
 		_, err := Maintain(ctx, pool, cfg.Retention)
+		return err
+	})
+
+	var head int64
+	start("notify", cfg.Notify, func(ctx context.Context) error {
+		n, err := Notify(ctx, pool, head)
+		head = n
 		return err
 	})
 

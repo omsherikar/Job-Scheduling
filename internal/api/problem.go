@@ -31,6 +31,10 @@ func conflict(detail string) *apiError {
 	return &apiError{status: 409, title: "conflict", detail: detail}
 }
 
+func tooOld(detail string) *apiError {
+	return &apiError{status: 410, title: "cursor too old", detail: detail}
+}
+
 func tooMany(detail string, retryAfter int) *apiError {
 	return &apiError{
 		status:  429,

@@ -20,10 +20,9 @@ with promoted as (
   update jobs set status = 'queued' where id = any($1) returning id, project_id
 ),
 ev as (
-  insert into events (topic, entity_id, project_id, payload)
-  select 'job.queued', id, project_id, '{}'::jsonb from promoted
+  select fl.emit('job.queued', id, project_id, '{}'::jsonb) from promoted
 )
-select count(*) from promoted`
+select count(*) from ev`
 
 const ageSQL = `
 update jobs set priority = priority + 1

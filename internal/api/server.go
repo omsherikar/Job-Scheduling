@@ -54,6 +54,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /dlq", s.guard(viewer, "", "job", s.byProjectOrQueue, s.listDLQ))
 	mux.HandleFunc("POST /dlq/{jobId}/replay", s.guard(member, "job.replay", "job", byPath("jobId", s.jobScope), s.replayJob))
 
+	mux.HandleFunc("GET /projects/{projectId}/events", s.guard(viewer, "", "project", byPath("projectId", s.projectScope), s.listEvents))
 	mux.HandleFunc("GET /workers", s.guard(viewer, "", "worker", s.byProjectQuery, s.listWorkers))
 	mux.HandleFunc("GET /stats/queues/{id}", s.guard(viewer, "", "queue", byPath("id", s.queueScope), s.queueStats))
 	mux.HandleFunc("GET /batches/{id}", s.guard(viewer, "", "batch", byPath("id", s.batchScope), s.getBatch))

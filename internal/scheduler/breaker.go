@@ -33,10 +33,9 @@ with sw as (
   returning id, project_id
 ),
 ev as (
-  insert into events (topic, entity_id, project_id, payload)
-  select 'queue.breaker_opened', id, project_id, '{}'::jsonb from sw
+  select fl.emit('queue.breaker_opened', id, project_id, '{}'::jsonb) from sw
 )
-select count(*) from sw`
+select count(*) from ev`
 
 const breakerReopenSQL = `
 with sw as (
@@ -47,10 +46,9 @@ with sw as (
   returning id, project_id
 ),
 ev as (
-  insert into events (topic, entity_id, project_id, payload)
-  select 'queue.breaker_reopened', id, project_id, '{}'::jsonb from sw
+  select fl.emit('queue.breaker_reopened', id, project_id, '{}'::jsonb) from sw
 )
-select count(*) from sw`
+select count(*) from ev`
 
 const breakerCloseSQL = `
 with sw as (
@@ -59,10 +57,9 @@ with sw as (
   returning id, project_id
 ),
 ev as (
-  insert into events (topic, entity_id, project_id, payload)
-  select 'queue.breaker_closed', id, project_id, '{}'::jsonb from sw
+  select fl.emit('queue.breaker_closed', id, project_id, '{}'::jsonb) from sw
 )
-select count(*) from sw`
+select count(*) from ev`
 
 type queueBreaker struct {
 	id        uuid.UUID

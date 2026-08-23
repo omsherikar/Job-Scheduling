@@ -13,6 +13,11 @@ const ensurePartitionsSQL = `select fl.ensure_partitions($1, (fl.now())::date, (
 
 const dropPartitionsSQL = `select fl.drop_partitions_before($1, (fl.now() - make_interval(secs => $2))::date)`
 
+const lowWaterSQL = `
+update events_retention set low_water_id = greatest(low_water_id, coalesce(
+  (select min(id) from events),
+  coalesce(pg_sequence_last_value(pg_get_serial_sequence('events', 'id')::regclass), 0) + 1))`
+
 var partitionParents = []string{
 	"events",
 	"job_logs",
@@ -46,6 +51,10 @@ func Maintain(ctx context.Context, pool *pgxpool.Pool, retention time.Duration) 
 			return 0, err
 		}
 		dropped += n
+	}
+
+	if _, err := tx.Exec(ctx, lowWaterSQL); err != nil {
+		return 0, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
