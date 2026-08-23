@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/shrutu0929/fenceline/internal/worker"
 )
 
 func TestQueueHealthTiers(t *testing.T) {
@@ -189,4 +190,53 @@ func TestProjectHealth(t *testing.T) {
 	if numField(t, withTier, "live_workers") != 0 {
 		t.Errorf("live workers = %v, want 0", withTier["live_workers"])
 	}
+}
+
+func TestQueueHealthLiveWorkers(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "viewer")
+	base := server(t, pool)
+
+	code, _, body := do(t, base, token, "GET", "/stats/queues/"+ten.queueID.String(), nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", code, body)
+	}
+	if n := numField(t, asMap(t, body), "live_workers"); n != 0 {
+		t.Fatalf("live workers before registering = %d, want 0", n)
+	}
+
+	workerID, err := worker.Register(ctx, pool, ten.queueID, 4)
+	testdb.Must(t, err)
+	cfg := worker.DefaultConfig()
+	cfg.QueueID = ten.queueID
+	cfg.WorkerID = workerID
+	cfg.Drain = 200 * time.Millisecond
+	cfg.Poll = 20 * time.Millisecond
+
+	runCtx, stop := context.WithCancel(ctx)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		worker.Run(runCtx, pool, cfg, map[string]worker.Handler{
+			"noop": func(ctx context.Context, j worker.Job) error { return nil },
+		})
+	}()
+
+	live := func() int {
+		_, _, raw := do(t, base, token, "GET", "/stats/queues/"+ten.queueID.String(), nil, nil)
+		return numField(t, asMap(t, raw), "live_workers")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && live() == 0 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := live(); got != 1 {
+		t.Errorf("live workers = %d, want 1", got)
+	}
+
+	stop()
+	<-finished
 }

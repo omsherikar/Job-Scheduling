@@ -23,6 +23,7 @@ The services are four binaries, each taking `DATABASE_URL`:
 go run ./cmd/api        # http, default port 3001, API_PORT to change it
 go run ./cmd/scheduler  # promoter, cron, breaker, reaper, notifier, partitions
 go run ./cmd/archiver   # hot to cold, idempotency pruning
+go run ./cmd/worker     # claims and runs jobs, see below
 go run ./cmd/migrate    # applies migrations, safe to run twice
 ```
 
@@ -115,13 +116,19 @@ any parent whose descendants were cancelled.
 
 ## Workers
 
-`worker.Run` takes a worker row that already exists, announces the job types it has handlers
-for, and claims only those. That is what makes it safe to enqueue a new type before deploying
-the workers that run it: the jobs wait instead of failing. Workers extend their lease while
-running and carry progress on the heartbeat.
+A worker registers itself against a queue, announces the job types it has handlers for, and
+claims only those. That is what makes it safe to enqueue a new type before deploying the
+workers that run it: the jobs wait instead of failing. Workers extend their lease while
+running, carry progress on the heartbeat, and mark themselves draining then dead on the way
+out, which is what the dashboard reads to tell you a queue has nobody to run it.
 
-There is no worker binary yet and nothing registers a worker row on startup, so running one
-outside the tests means inserting the row yourself. `cmd/worker` is empty.
+```
+DATABASE_URL=... WORKER_QUEUE=<queue id> WORKER_CONCURRENCY=4 go run ./cmd/worker
+```
+
+`worker.Run` is the library underneath, and the handlers are yours. The binary carries three
+for smoke tests and benchmarks: `noop` returns immediately, `sleep` waits for the milliseconds
+in its payload, and `fail` always errors.
 
 ## Events
 

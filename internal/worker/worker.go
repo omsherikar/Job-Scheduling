@@ -41,6 +41,7 @@ type Config struct {
 	Lease       time.Duration
 	Drain       time.Duration
 	Poll        time.Duration
+	Heartbeat   time.Duration
 
 	CompleteBatch int
 	CompleteWait  time.Duration
@@ -48,8 +49,11 @@ type Config struct {
 
 const announceSQL = `update workers set handlers = $2 where id = $1`
 
-func announce(ctx context.Context, pool *pgxpool.Pool, workerID uuid.UUID, types []string) error {
-	_, err := pool.Exec(ctx, announceSQL, workerID, types)
+func announce(ctx context.Context, pool *pgxpool.Pool, cfg Config, types []string) error {
+	if _, err := pool.Exec(ctx, announceSQL, cfg.WorkerID, types); err != nil {
+		return err
+	}
+	_, err := pool.Exec(ctx, subscribeSQL, cfg.WorkerID, cfg.QueueID)
 	return err
 }
 
@@ -59,6 +63,7 @@ func DefaultConfig() Config {
 		Lease:         30 * time.Second,
 		Drain:         30 * time.Second,
 		Poll:          time.Second,
+		Heartbeat:     10 * time.Second,
 		CompleteBatch: 25,
 		CompleteWait:  50 * time.Millisecond,
 	}
@@ -76,9 +81,25 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 		types = append(types, name)
 	}
 	sort.Strings(types)
-	if err := announce(ctx, pool, cfg.WorkerID, types); err != nil {
+	if err := announce(ctx, pool, cfg, types); err != nil {
 		return err
 	}
+	defer retire(pool, cfg.WorkerID, "dead")
+
+	beats := time.NewTicker(cfg.Heartbeat)
+	defer beats.Stop()
+	go func() {
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-beats.C:
+				if err := beat(runCtx, pool, cfg.WorkerID); err != nil && runCtx.Err() == nil {
+					log.Printf("heartbeat worker %s: %v", cfg.WorkerID, err)
+				}
+			}
+		}
+	}()
 
 	completions := make(chan finished, cfg.CompleteBatch*2)
 	completed := make(chan struct{})
@@ -117,6 +138,8 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 	}
 
 	done := make(chan struct{})
+	retire(pool, cfg.WorkerID, "draining")
+
 	go func() {
 		wg.Wait()
 		close(done)

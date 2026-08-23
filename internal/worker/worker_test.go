@@ -50,6 +50,7 @@ func config(queueID, workerID uuid.UUID, lease time.Duration) worker.Config {
 
 		CompleteBatch: 25,
 		CompleteWait:  20 * time.Millisecond,
+		Heartbeat:     time.Second,
 	}
 }
 
@@ -348,6 +349,7 @@ func TestProgressOnHeartbeat(t *testing.T) {
 
 		CompleteBatch: 25,
 		CompleteWait:  20 * time.Millisecond,
+		Heartbeat:     time.Second,
 	}
 
 	runCtx, stop := context.WithCancel(ctx)
@@ -410,6 +412,7 @@ func TestHandlerPanic(t *testing.T) {
 
 		CompleteBatch: 25,
 		CompleteWait:  20 * time.Millisecond,
+		Heartbeat:     time.Second,
 	}
 	stop, errs := run(t, pool, cfg, handlers)
 	done.Wait()
@@ -617,5 +620,86 @@ func TestSnoozeExhausted(t *testing.T) {
 	}
 	if s := testdb.JobStatus(t, ctx, pool, jobID); s != "running" {
 		t.Errorf("status = %q, want running", s)
+	}
+}
+
+func TestRegister(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 4)
+
+	workerID, err := worker.Register(ctx, pool, queueID, 4)
+	testdb.Must(t, err)
+
+	var project uuid.UUID
+	var state string
+	var concurrency int
+	testdb.Must(t, pool.QueryRow(ctx,
+		`select project_id, state, max_concurrency from workers where id = $1`, workerID).
+		Scan(&project, &state, &concurrency))
+	if project != projectID {
+		t.Errorf("project = %v, want %v", project, projectID)
+	}
+	if state != "active" {
+		t.Errorf("state = %q, want active", state)
+	}
+	if concurrency != 4 {
+		t.Errorf("max_concurrency = %d, want 4", concurrency)
+	}
+
+	cfg := config(queueID, workerID, 30*time.Second)
+	cfg.Heartbeat = 20 * time.Millisecond
+	cancel, done := run(t, pool, cfg, map[string]worker.Handler{
+		"noop": func(ctx context.Context, j worker.Job) error { return nil },
+	})
+
+	live := func() int {
+		var n int
+		testdb.Must(t, pool.QueryRow(ctx, `select count(*) from workers w
+			join worker_queues wq on wq.worker_id = w.id
+			where wq.queue_id = $1 and w.state = 'active'`, queueID).Scan(&n))
+		return n
+	}
+	if !waitFor(5*time.Second, func() bool { return live() == 1 }) {
+		t.Fatalf("live workers = %d, want 1", live())
+	}
+
+	var handlers []string
+	testdb.Must(t, pool.QueryRow(ctx, `select handlers from workers where id = $1`, workerID).Scan(&handlers))
+	if len(handlers) != 1 || handlers[0] != "noop" {
+		t.Errorf("handlers = %v, want [noop]", handlers)
+	}
+
+	seen := func() time.Time {
+		var at time.Time
+		testdb.Must(t, pool.QueryRow(ctx,
+			`select last_seen_at from workers where id = $1`, workerID).Scan(&at))
+		return at
+	}
+	first := seen()
+	testdb.Advance(t, pool, time.Minute)
+	if !waitFor(5*time.Second, func() bool { return seen().After(first) }) {
+		t.Errorf("last_seen_at = %v, want after %v", seen(), first)
+	}
+
+	cancel()
+	<-done
+
+	testdb.Must(t, pool.QueryRow(ctx, `select state from workers where id = $1`, workerID).Scan(&state))
+	if state != "dead" {
+		t.Errorf("state after shutdown = %q, want dead", state)
+	}
+}
+
+func TestRegisterUnknownQueue(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+
+	_, err := worker.Register(ctx, pool, uuid.New(), 4)
+	if !errors.Is(err, worker.ErrNoQueue) {
+		t.Fatalf("err = %v, want %v", err, worker.ErrNoQueue)
 	}
 }
