@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"log"
+	"math/rand/v2"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,6 +18,7 @@ import (
 const (
 	maxBody      = 1 << 20
 	maxTxRetries = 5
+	retryBackoff = 20 * time.Millisecond
 )
 
 var errConflictRetry = errors.New("idempotency conflict retry")
@@ -77,6 +80,7 @@ func (s *Server) tx(ctx context.Context, fn func(pgx.Tx) (result, error)) (resul
 			tx.Rollback(ctx)
 			if retryable(err) {
 				last = err
+				backoff(ctx, i)
 				continue
 			}
 			return result{}, err
@@ -85,6 +89,7 @@ func (s *Server) tx(ctx context.Context, fn func(pgx.Tx) (result, error)) (resul
 			tx.Rollback(ctx)
 			if retryable(err) {
 				last = err
+				backoff(ctx, i)
 				continue
 			}
 			return result{}, err
@@ -92,6 +97,14 @@ func (s *Server) tx(ctx context.Context, fn func(pgx.Tx) (result, error)) (resul
 		return res, nil
 	}
 	return result{}, last
+}
+
+func backoff(ctx context.Context, attempt int) {
+	d := retryBackoff * time.Duration(1<<attempt)
+	select {
+	case <-ctx.Done():
+	case <-time.After(d/2 + time.Duration(rand.Int64N(int64(d/2)+1))):
+	}
 }
 
 func retryable(err error) bool {

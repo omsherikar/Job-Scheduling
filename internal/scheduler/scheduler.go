@@ -19,6 +19,7 @@ type Config struct {
 	Partition time.Duration
 	Notify    time.Duration
 	Rollup    time.Duration
+	Sweep     time.Duration
 
 	Batch      int
 	AgeAfter   time.Duration
@@ -42,6 +43,7 @@ func DefaultConfig() Config {
 		Partition: time.Hour,
 		Notify:    20 * time.Millisecond,
 		Rollup:    time.Minute,
+		Sweep:     time.Minute,
 
 		Batch:      100,
 		AgeAfter:   5 * time.Minute,
@@ -71,10 +73,11 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 		return err
 	})
 	start("reap", cfg.Reap, func(ctx context.Context) error {
-		if _, err := Reap(ctx, pool, cfg.Batch); err != nil {
-			return err
-		}
-		_, err := SweepOrphanExecutions(ctx, pool)
+		_, err := Reap(ctx, pool, cfg.Batch)
+		return err
+	})
+	start("sweep", cfg.Sweep, func(ctx context.Context) error {
+		_, err := SweepOrphanExecutions(ctx, pool, cfg.Batch)
 		return err
 	})
 	start("cron", cfg.Cron, func(ctx context.Context) error {
@@ -86,7 +89,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 		return err
 	})
 	start("age", cfg.Age, func(ctx context.Context) error {
-		_, err := Age(ctx, pool, cfg.AgeAfter, cfg.AgeCeiling)
+		_, err := Age(ctx, pool, cfg.AgeAfter, cfg.AgeCeiling, cfg.Batch)
 		return err
 	})
 	start("partition", cfg.Partition, func(ctx context.Context) error {

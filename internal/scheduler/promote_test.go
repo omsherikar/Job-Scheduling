@@ -129,7 +129,7 @@ func TestAgeCeiling(t *testing.T) {
 	testdb.Advance(t, pool, 6*time.Minute)
 
 	for want := 1; want <= 3; want++ {
-		n, err := scheduler.Age(ctx, pool, 5*time.Minute, 3)
+		n, err := scheduler.Age(ctx, pool, 5*time.Minute, 3, 100)
 		testdb.Must(t, err)
 		if n != 1 {
 			t.Fatalf("aged = %d, want 1", n)
@@ -139,7 +139,7 @@ func TestAgeCeiling(t *testing.T) {
 		}
 	}
 
-	n, err := scheduler.Age(ctx, pool, 5*time.Minute, 3)
+	n, err := scheduler.Age(ctx, pool, 5*time.Minute, 3, 100)
 	testdb.Must(t, err)
 	if n != 0 {
 		t.Fatalf("aged = %d, want 0", n)

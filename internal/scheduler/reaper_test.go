@@ -186,7 +186,7 @@ func TestSweepGrace(t *testing.T) {
 	_, err = pool.Exec(ctx, `select fl.queue_release($1, 1)`, queueID)
 	testdb.Must(t, err)
 
-	swept, err := scheduler.SweepOrphanExecutions(ctx, pool)
+	swept, err := scheduler.SweepOrphanExecutions(ctx, pool, 100)
 	testdb.Must(t, err)
 	if swept != 0 {
 		t.Fatalf("swept within grace = %d, want 0", swept)
@@ -199,7 +199,7 @@ func TestSweepGrace(t *testing.T) {
 	}
 
 	testdb.Advance(t, pool, 11*time.Minute)
-	swept, err = scheduler.SweepOrphanExecutions(ctx, pool)
+	swept, err = scheduler.SweepOrphanExecutions(ctx, pool, 100)
 	testdb.Must(t, err)
 	if swept != 1 {
 		t.Fatalf("swept past grace = %d, want 1", swept)

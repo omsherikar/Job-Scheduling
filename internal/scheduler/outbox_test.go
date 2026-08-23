@@ -110,3 +110,36 @@ func TestOutboxNoGap(t *testing.T) {
 		t.Errorf("id gaps = %d, want 0", gaps)
 	}
 }
+
+func TestOutboxProjectsIndependent(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	one, _ := testdb.Base(t, ctx, pool)
+	two, _ := testdb.Base(t, ctx, pool)
+
+	held, err := pool.Begin(ctx)
+	testdb.Must(t, err)
+	defer held.Rollback(ctx)
+	_, err = held.Exec(ctx, `select fl.emit('a', $1, $1, '{}'::jsonb)`, one)
+	testdb.Must(t, err)
+
+	other, err := pool.Begin(ctx)
+	testdb.Must(t, err)
+	defer other.Rollback(ctx)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := other.Exec(ctx, `select fl.emit('b', $1, $1, '{}'::jsonb)`, two)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		testdb.Must(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("second-project emit blocked, want unblocked")
+	}
+	testdb.Must(t, other.Commit(ctx))
+	testdb.Must(t, held.Commit(ctx))
+}

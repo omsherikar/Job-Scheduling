@@ -26,9 +26,13 @@ select count(*) from ev`
 
 const ageSQL = `
 update jobs set priority = priority + 1
- where status = 'queued'
-   and created_at < fl.now() - make_interval(secs => $1)
-   and priority < $2`
+ where id in (
+   select id from jobs
+    where status = 'queued'
+      and created_at < fl.now() - make_interval(secs => $1)
+      and priority < $2
+    limit $3
+ )`
 
 func Promote(ctx context.Context, pool *pgxpool.Pool, limit int) (int, error) {
 	tx, err := pool.Begin(ctx)
@@ -69,8 +73,8 @@ func Promote(ctx context.Context, pool *pgxpool.Pool, limit int) (int, error) {
 	return n, nil
 }
 
-func Age(ctx context.Context, pool *pgxpool.Pool, olderThan time.Duration, ceiling int) (int, error) {
-	tag, err := pool.Exec(ctx, ageSQL, olderThan.Seconds(), ceiling)
+func Age(ctx context.Context, pool *pgxpool.Pool, olderThan time.Duration, ceiling, limit int) (int, error) {
+	tag, err := pool.Exec(ctx, ageSQL, olderThan.Seconds(), ceiling, limit)
 	if err != nil {
 		return 0, err
 	}
