@@ -19,6 +19,7 @@ with cand as materialized (
   select j.id
     from jobs j
    where j.queue_id = $1 and j.status = 'queued' and j.run_at <= fl.now()
+     and ($5::text[] is null or j.type = any($5))
    order by j.priority desc, j.run_at asc, j.id asc
    for update skip locked
    limit $2
@@ -83,7 +84,7 @@ func take(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest, n int) ([]C
 	}
 	defer tx.Rollback(ctx)
 
-	rows, err := tx.Query(ctx, claimSQL, req.QueueID, n, req.WorkerID, req.Lease.Seconds())
+	rows, err := tx.Query(ctx, claimSQL, req.QueueID, n, req.WorkerID, req.Lease.Seconds(), req.Types)
 	if err != nil {
 		return nil, err
 	}

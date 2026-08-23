@@ -101,6 +101,53 @@ func (s *Server) listDLQ(ctx context.Context, tx pgx.Tx, r *http.Request, sc sco
 	return result{body: map[string]any{"items": out, "next_cursor": next}}, nil
 }
 
+const bulkReplaySQL = `select job from fl.replay_dead($1, $2, $3, $4)`
+
+type bulkReplayReq struct {
+	Limit *int     `json:"limit"`
+	Rate  *float64 `json:"rate_per_sec"`
+}
+
+func (s *Server) replayQueue(ctx context.Context, tx pgx.Tx, r *http.Request, sc scope) (result, error) {
+	var req bulkReplayReq
+	if err := decode(r, &req); err != nil {
+		return result{}, err
+	}
+	limit := derefInt(req.Limit, 100)
+	if limit <= 0 || limit > 1000 {
+		return result{}, badRequest("limit must be between 1 and 1000")
+	}
+	rate := 0.0
+	if req.Rate != nil {
+		if *req.Rate < 0 {
+			return result{}, badRequest("rate_per_sec must not be negative")
+		}
+		rate = *req.Rate
+	}
+
+	rows, err := tx.Query(ctx, bulkReplaySQL, sc.entityID, limit, rate, sc.userID)
+	if err != nil {
+		return result{}, err
+	}
+	defer rows.Close()
+	out := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return result{}, err
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return result{}, err
+	}
+
+	return result{
+		body:  map[string]any{"replayed": len(out), "items": out},
+		audit: map[string]any{"replayed": len(out), "limit": limit, "rate_per_sec": rate},
+	}, nil
+}
+
 func (s *Server) replayJob(ctx context.Context, tx pgx.Tx, r *http.Request, sc scope) (result, error) {
 	rows, err := tx.Query(ctx, cancelledKinSQL, sc.entityID)
 	if err != nil {

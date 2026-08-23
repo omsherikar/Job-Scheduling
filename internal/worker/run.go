@@ -84,6 +84,11 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 		completions <- finished{claimed: c, exec: exec}
 		return
 	}
+	var nap Snooze
+	if errors.As(herr, &nap) {
+		snooze(pool, c, exec, nap.After)
+		return
+	}
 	if runCtx.Err() != nil {
 		return
 	}
@@ -158,6 +163,25 @@ func extend(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed,
 		}
 	}
 	return ok, err
+}
+
+func snooze(pool *pgxpool.Pool, c jobs.Claimed, exec jobs.Execution, after time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), reportTimeout)
+	defer cancel()
+
+	var err error
+	for i := 0; i < reportAttempts; i++ {
+		err = jobs.Snooze(ctx, pool, c.ID, c.Fence, exec.ID, after)
+		if err == nil || errors.Is(err, jobs.ErrFenced) || !transient(err) {
+			break
+		}
+		if !backoff(ctx) {
+			break
+		}
+	}
+	if err != nil && !errors.Is(err, jobs.ErrFenced) {
+		log.Printf("snooze job %s: %v", c.ID, err)
+	}
 }
 
 func report(pool *pgxpool.Pool, c jobs.Claimed, herr error) {

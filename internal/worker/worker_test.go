@@ -484,3 +484,86 @@ func TestHandlerLogs(t *testing.T) {
 		}
 	}
 }
+
+func TestSnoozeKeepsAttempts(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 4)
+	workerID := testdb.NewWorker(t, ctx, pool, projectID)
+	jobID := testdb.NewJob(t, ctx, pool, projectID, queueID, policyID)
+
+	handlers := map[string]worker.Handler{
+		"noop": func(ctx context.Context, j worker.Job) error {
+			return worker.Snooze{After: time.Minute}
+		},
+	}
+	cancel, done := run(t, pool, config(queueID, workerID, 30*time.Second), handlers)
+
+	if !waitFor(5*time.Second, func() bool {
+		return testdb.JobStatus(t, ctx, pool, jobID) == "scheduled"
+	}) {
+		t.Fatalf("status = %q, want scheduled", testdb.JobStatus(t, ctx, pool, jobID))
+	}
+	cancel()
+	<-done
+
+	var attempts, snoozes int
+	var runAt, now time.Time
+	testdb.Must(t, pool.QueryRow(ctx,
+		`select attempt_count, snooze_count, run_at, fl.now() from jobs where id = $1`, jobID).
+		Scan(&attempts, &snoozes, &runAt, &now))
+	if attempts != 1 {
+		t.Errorf("attempt_count = %d, want 1", attempts)
+	}
+	if snoozes != 1 {
+		t.Errorf("snooze_count = %d, want 1", snoozes)
+	}
+	if !runAt.After(now) {
+		t.Errorf("run_at = %s, want after %s", runAt, now)
+	}
+
+	var outcome string
+	testdb.Must(t, pool.QueryRow(ctx,
+		`select outcome::text from job_executions where job_id = $1`, jobID).Scan(&outcome))
+	if outcome != "snoozed" {
+		t.Errorf("outcome = %q, want snoozed", outcome)
+	}
+
+	var inFlight int
+	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&inFlight))
+	if inFlight != 0 {
+		t.Errorf("in_flight = %d, want 0", inFlight)
+	}
+	testdb.CheckInvariants(t, ctx, pool)
+}
+
+func TestSnoozeClampedToPolicy(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	_, err := pool.Exec(ctx, `update retry_policies set max_delay_ms = 5000 where id = $1`, policyID)
+	testdb.Must(t, err)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 4)
+	workerID := testdb.NewWorker(t, ctx, pool, projectID)
+	jobID := testdb.NewJob(t, ctx, pool, projectID, queueID, policyID)
+
+	claimed, err := jobs.Claim(ctx, pool, jobs.ClaimRequest{
+		QueueID: queueID, WorkerID: workerID, FreeSlots: 1, Lease: time.Hour})
+	testdb.Must(t, err)
+	exec, err := jobs.Start(ctx, pool, jobID, claimed[0].Fence, workerID)
+	testdb.Must(t, err)
+
+	testdb.Must(t, jobs.Snooze(ctx, pool, jobID, claimed[0].Fence, exec.ID, 365*24*time.Hour))
+
+	var seconds float64
+	testdb.Must(t, pool.QueryRow(ctx,
+		`select extract(epoch from (run_at - fl.now())) from jobs where id = $1`, jobID).Scan(&seconds))
+	if seconds > 6 {
+		t.Errorf("snooze delay = %.0fs, want <= 5s", seconds)
+	}
+}

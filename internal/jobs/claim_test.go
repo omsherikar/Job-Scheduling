@@ -391,3 +391,57 @@ func TestClaimPlanGeneric(t *testing.T) {
 		t.Errorf("generic plan has a seq scan on jobs:\n%s", p)
 	}
 }
+
+func TestClaimSkipsUnknownType(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 10)
+	workerID := testdb.NewWorker(t, ctx, pool, projectID)
+
+	var known, unknown uuid.UUID
+	testdb.Must(t, pool.QueryRow(ctx, `insert into jobs (project_id, queue_id, type, retry_policy_id, status, run_at)
+		values ($1, $2, 'known', $3, 'queued', fl.now()) returning id`, projectID, queueID, policyID).Scan(&known))
+	testdb.Must(t, pool.QueryRow(ctx, `insert into jobs (project_id, queue_id, type, retry_policy_id, status, run_at)
+		values ($1, $2, 'brand.new', $3, 'queued', fl.now()) returning id`, projectID, queueID, policyID).Scan(&unknown))
+
+	claimed, err := jobs.Claim(ctx, pool, jobs.ClaimRequest{
+		QueueID: queueID, WorkerID: workerID, FreeSlots: 10, Lease: time.Hour,
+		Types: []string{"known"}})
+	testdb.Must(t, err)
+	if len(claimed) != 1 {
+		t.Fatalf("claimed = %d, want 1", len(claimed))
+	}
+	if claimed[0].ID != known {
+		t.Errorf("claimed %v, want %v", claimed[0].ID, known)
+	}
+	if s := testdb.JobStatus(t, ctx, pool, unknown); s != "queued" {
+		t.Errorf("unhandled job status = %q, want queued", s)
+	}
+
+	var inFlight int
+	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&inFlight))
+	if inFlight != 1 {
+		t.Errorf("in_flight = %d, want 1", inFlight)
+	}
+}
+
+func TestClaimAllTypesWhenUnset(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 10)
+	workerID := testdb.NewWorker(t, ctx, pool, projectID)
+	testdb.NewJob(t, ctx, pool, projectID, queueID, policyID)
+
+	claimed, err := jobs.Claim(ctx, pool, jobs.ClaimRequest{
+		QueueID: queueID, WorkerID: workerID, FreeSlots: 10, Lease: time.Hour})
+	testdb.Must(t, err)
+	if len(claimed) != 1 {
+		t.Fatalf("claimed = %d, want 1", len(claimed))
+	}
+}

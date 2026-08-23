@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os/signal"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -27,6 +28,12 @@ type Job struct {
 
 type Handler func(ctx context.Context, j Job) error
 
+type Snooze struct {
+	After time.Duration
+}
+
+func (s Snooze) Error() string { return "snooze for " + s.After.String() }
+
 type Config struct {
 	QueueID     uuid.UUID
 	WorkerID    uuid.UUID
@@ -37,6 +44,13 @@ type Config struct {
 
 	CompleteBatch int
 	CompleteWait  time.Duration
+}
+
+const announceSQL = `update workers set handlers = $2 where id = $1`
+
+func announce(ctx context.Context, pool *pgxpool.Pool, workerID uuid.UUID, types []string) error {
+	_, err := pool.Exec(ctx, announceSQL, workerID, types)
+	return err
 }
 
 func DefaultConfig() Config {
@@ -57,6 +71,15 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 	runCtx, abort := context.WithCancel(context.Background())
 	defer abort()
 
+	types := make([]string, 0, len(handlers))
+	for name := range handlers {
+		types = append(types, name)
+	}
+	sort.Strings(types)
+	if err := announce(ctx, pool, cfg.WorkerID, types); err != nil {
+		return err
+	}
+
 	completions := make(chan finished, cfg.CompleteBatch*2)
 	completed := make(chan struct{})
 	go func() {
@@ -75,6 +98,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 				WorkerID:  cfg.WorkerID,
 				FreeSlots: free,
 				Lease:     cfg.Lease,
+				Types:     types,
 			})
 			if err != nil && stopCtx.Err() == nil {
 				log.Printf("claim queue %s: %v", cfg.QueueID, err)

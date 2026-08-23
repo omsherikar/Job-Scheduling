@@ -20,4 +20,5 @@ type ClaimRequest struct {
 	WorkerID  uuid.UUID
 	FreeSlots int
 	Lease     time.Duration
+	Types     []string
 }

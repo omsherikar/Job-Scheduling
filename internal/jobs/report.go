@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -129,4 +130,15 @@ func CompleteBatch(ctx context.Context, pool *pgxpool.Pool, batch []Done) ([]uui
 		out = append(out, id)
 	}
 	return out, rows.Err()
+}
+
+const reportSnoozeSQL = `select queue from fl.report_snooze($1, $2, $3, $4)`
+
+func Snooze(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence int64, exec uuid.UUID, delay time.Duration) error {
+	var queueID uuid.UUID
+	err := pool.QueryRow(ctx, reportSnoozeSQL, jobID, fence, exec, delay.Milliseconds()).Scan(&queueID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrFenced
+	}
+	return err
 }

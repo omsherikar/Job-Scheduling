@@ -164,3 +164,101 @@ func TestDependencyCycleRefused(t *testing.T) {
 		t.Errorf("dependency rows = %d, want 1", n)
 	}
 }
+
+func deadBatch(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ten tenant, n int) []uuid.UUID {
+	t.Helper()
+	worker := testdb.NewWorker(t, ctx, pool, ten.projectID)
+	var out []uuid.UUID
+	for i := 0; i < n; i++ {
+		id := testdb.NewJob(t, ctx, pool, ten.projectID, ten.queueID, ten.policyID)
+		claimed, err := jobs.Claim(ctx, pool, jobs.ClaimRequest{
+			QueueID: ten.queueID, WorkerID: worker, FreeSlots: 1, Lease: time.Hour})
+		testdb.Must(t, err)
+		_, err = jobs.Start(ctx, pool, id, claimed[0].Fence, worker)
+		testdb.Must(t, err)
+		testdb.Must(t, jobs.Fail(ctx, pool, id, claimed[0].Fence, jobs.ErrPermanent))
+		out = append(out, id)
+	}
+	return out
+}
+
+func TestBulkReplayRate(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "member")
+	base := server(t, pool)
+
+	dead := deadBatch(t, ctx, pool, ten, 5)
+
+	code, _, raw := do(t, base, token, "POST", "/queues/"+ten.queueID.String()+"/dlq/replay",
+		map[string]any{"limit": 10, "rate_per_sec": 2}, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", code, raw)
+	}
+	if n := numField(t, asMap(t, raw), "replayed"); n != 5 {
+		t.Fatalf("replayed = %d, want 5", n)
+	}
+
+	for _, id := range dead {
+		if s := testdb.JobStatus(t, ctx, pool, id); s != "queued" {
+			t.Errorf("status = %q, want queued", s)
+		}
+	}
+
+	var spread float64
+	testdb.Must(t, pool.QueryRow(ctx,
+		`select extract(epoch from (max(run_at) - min(run_at))) from jobs where id = any($1)`,
+		dead).Scan(&spread))
+	if spread < 1.9 || spread > 2.1 {
+		t.Errorf("run_at spread = %.2fs, want ~2s", spread)
+	}
+}
+
+func TestBulkReplayDepthCap(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "member")
+	base := server(t, pool)
+
+	deadBatch(t, ctx, pool, ten, 5)
+	_, err := pool.Exec(ctx, `update queues set max_depth = 2 where id = $1`, ten.queueID)
+	testdb.Must(t, err)
+
+	code, _, raw := do(t, base, token, "POST", "/queues/"+ten.queueID.String()+"/dlq/replay",
+		map[string]any{"limit": 100}, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", code, raw)
+	}
+	if n := numField(t, asMap(t, raw), "replayed"); n != 2 {
+		t.Errorf("replayed = %d, want 2", n)
+	}
+}
+
+func TestBulkReplaySkipsCancelledKin(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "member")
+	base := server(t, pool)
+
+	parent, _ := submit(t, base, token, ten.queueID, "build")
+	submit(t, base, token, ten.queueID, "deploy", parent.String())
+	finish(t, ctx, pool, ten, parent, jobs.ErrPermanent)
+
+	code, _, raw := do(t, base, token, "POST", "/queues/"+ten.queueID.String()+"/dlq/replay",
+		map[string]any{"limit": 100}, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", code, raw)
+	}
+	if n := numField(t, asMap(t, raw), "replayed"); n != 0 {
+		t.Errorf("replayed = %d, want 0", n)
+	}
+	if s := testdb.JobStatus(t, ctx, pool, parent); s != "dead_letter" {
+		t.Errorf("parent status = %q, want dead_letter", s)
+	}
+}
