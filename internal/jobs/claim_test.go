@@ -345,3 +345,49 @@ func TestClaimPlan(t *testing.T) {
 		t.Errorf("plan has a seq scan on jobs:\n%s", p)
 	}
 }
+
+func TestClaimPlanGeneric(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 1000)
+	seedJobs(t, ctx, pool, projectID, queueID, policyID, 200000)
+	_, err := pool.Exec(ctx, `analyze jobs`)
+	testdb.Must(t, err)
+
+	conn, err := pool.Acquire(ctx)
+	testdb.Must(t, err)
+	defer conn.Release()
+
+	for _, stmt := range []string{
+		`set plan_cache_mode = force_generic_plan`,
+		`prepare cand(uuid, int) as
+		   select j.id from jobs j
+		    where j.queue_id = $1 and j.status = 'queued' and j.run_at <= fl.now()
+		    order by j.priority desc, j.run_at asc, j.id asc
+		    for update skip locked limit $2`,
+	} {
+		_, err = conn.Exec(ctx, stmt)
+		testdb.Must(t, err)
+	}
+
+	rows, err := conn.Query(ctx, fmt.Sprintf(`explain execute cand('%s', 10)`, queueID))
+	testdb.Must(t, err)
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		testdb.Must(t, rows.Scan(&line))
+		plan.WriteString(line)
+		plan.WriteByte('\n')
+	}
+	testdb.Must(t, rows.Err())
+
+	p := plan.String()
+	if !strings.Contains(p, "idx_jobs_claimable") {
+		t.Errorf("generic plan does not use idx_jobs_claimable:\n%s", p)
+	}
+	if strings.Contains(p, "Seq Scan on jobs") {
+		t.Errorf("generic plan has a seq scan on jobs:\n%s", p)
+	}
+}

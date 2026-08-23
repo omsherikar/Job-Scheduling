@@ -107,8 +107,7 @@ func Claim(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest) ([]Claimed
 		return nil, nil
 	}
 
-	rows, err := tx.Query(ctx, claimSQL, pgx.QueryExecModeExec,
-		req.QueueID, n, req.WorkerID, req.Lease.Seconds())
+	rows, err := tx.Query(ctx, claimSQL, req.QueueID, n, req.WorkerID, req.Lease.Seconds())
 	if err != nil {
 		return nil, err
 	}
