@@ -3,29 +3,16 @@ package jobs
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const admitSQL = `
-select least(
-         $2::int,
-         greatest(max_concurrency - in_flight, 0),
-         case when rl_limit_per_sec = 0 then $2::int
-              else floor(least(rl_burst,
-                     rl_tokens + extract(epoch from (fl.now() - rl_refilled_at)) * rl_limit_per_sec))::int
-         end,
-         case when breaker_state = 'closed' then $2::int else 1 end
-       )
-  from queues
- where id = $1
-   and not paused
-   and (breaker_state = 'closed'
-        or (breaker_state = 'half_open' and breaker_probe_budget > 0)
-        or (breaker_state = 'open' and coalesce(breaker_open_until, fl.now()) <= fl.now()))
- for no key update`
+const releaseGrace = 5 * time.Second
+
+const admitSQL = `select fl.queue_admit($1, $2)`
 
 const claimSQL = `
 with cand as materialized (
@@ -35,27 +22,6 @@ with cand as materialized (
    order by j.priority desc, j.run_at asc, j.id asc
    for update skip locked
    limit $2
-),
-acct as (
-  update queues set
-    in_flight = in_flight + (select count(*) from cand),
-    rl_tokens = case when rl_limit_per_sec = 0 then rl_tokens
-                     else least(rl_burst,
-                                rl_tokens + extract(epoch from (fl.now() - rl_refilled_at)) * rl_limit_per_sec)
-                          - (select count(*) from cand)
-                end,
-    rl_refilled_at = case when rl_limit_per_sec = 0 then rl_refilled_at else fl.now() end,
-    breaker_state = case when breaker_state = 'open'
-                          and coalesce(breaker_open_until, fl.now()) <= fl.now()
-                         then 'half_open' else breaker_state end,
-    breaker_probe_budget = case
-      when breaker_state = 'open' and coalesce(breaker_open_until, fl.now()) <= fl.now()
-        then 1 - (select count(*) from cand)::int
-      when breaker_state = 'half_open'
-        then breaker_probe_budget - (select count(*) from cand)::int
-      else breaker_probe_budget
-    end
-  where id = $1
 ),
 upd as (
   update jobs j set
@@ -80,9 +46,9 @@ lease as (
 )
 select id, fence, type, payload, attempt_count, deadline_at from upd`
 
-func admit(ctx context.Context, tx pgx.Tx, queueID uuid.UUID, freeSlots int) (int, error) {
+func admit(ctx context.Context, pool *pgxpool.Pool, queueID uuid.UUID, freeSlots int) (int, error) {
 	var n int
-	err := tx.QueryRow(ctx, admitSQL, queueID, freeSlots).Scan(&n)
+	err := pool.QueryRow(ctx, admitSQL, queueID, freeSlots).Scan(&n)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -93,25 +59,34 @@ func admit(ctx context.Context, tx pgx.Tx, queueID uuid.UUID, freeSlots int) (in
 }
 
 func Claim(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest) ([]Claimed, error) {
+	adm, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseGrace)
+	n, err := admit(adm, pool, req.QueueID, req.FreeSlots)
+	cancel()
+	if err != nil || n == 0 {
+		return nil, err
+	}
+
+	out, err := take(ctx, pool, req, n)
+	if err != nil {
+		give, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseGrace)
+		pool.Exec(give, releaseSQL, req.QueueID, n)
+		cancel()
+		return nil, err
+	}
+	return out, nil
+}
+
+func take(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest, n int) ([]Claimed, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
-	n, err := admit(ctx, tx, req.QueueID, req.FreeSlots)
-	if err != nil {
-		return nil, err
-	}
-	if n == 0 {
-		return nil, nil
-	}
-
 	rows, err := tx.Query(ctx, claimSQL, req.QueueID, n, req.WorkerID, req.Lease.Seconds())
 	if err != nil {
 		return nil, err
 	}
-
 	var out []Claimed
 	for rows.Next() {
 		var c Claimed
@@ -124,6 +99,12 @@ func Claim(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest) ([]Claimed
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	if len(out) < n {
+		if err := Release(ctx, tx, req.QueueID, n-len(out)); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
