@@ -23,7 +23,7 @@ const (
 	reportTimeout  = 30 * time.Second
 )
 
-func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[string]Handler, c jobs.Claimed) {
+func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[string]Handler, completions chan<- finished, c jobs.Claimed) {
 	h, ok := handlers[c.Type]
 	if !ok {
 		log.Printf("no handler for type %s job %s", c.Type, c.ID)
@@ -76,13 +76,13 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 		return
 	}
 	if herr == nil {
-		report(pool, c, exec, nil)
+		completions <- finished{claimed: c, exec: exec}
 		return
 	}
 	if runCtx.Err() != nil {
 		return
 	}
-	report(pool, c, exec, herr)
+	report(pool, c, herr)
 }
 
 func call(ctx context.Context, h Handler, j Job) (err error) {
@@ -153,17 +153,13 @@ func extend(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed,
 	return ok, err
 }
 
-func report(pool *pgxpool.Pool, c jobs.Claimed, exec jobs.Execution, herr error) {
+func report(pool *pgxpool.Pool, c jobs.Claimed, herr error) {
 	ctx, cancel := context.WithTimeout(context.Background(), reportTimeout)
 	defer cancel()
 
 	var err error
 	for i := 0; i < reportAttempts; i++ {
-		if herr == nil {
-			err = jobs.Complete(ctx, pool, c.ID, c.Fence, exec.ID)
-		} else {
-			err = jobs.Fail(ctx, pool, c.ID, c.Fence, herr)
-		}
+		err = jobs.Fail(ctx, pool, c.ID, c.Fence, herr)
 		if err == nil || errors.Is(err, jobs.ErrFenced) || !transient(err) {
 			break
 		}

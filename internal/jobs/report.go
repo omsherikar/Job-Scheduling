@@ -98,3 +98,35 @@ func Fail(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence int64,
 	}
 	return tx.Commit(ctx)
 }
+
+const reportBatchSQL = `select job from fl.report_success_batch($1, $2, $3)`
+
+type Done struct {
+	JobID uuid.UUID
+	Fence int64
+	Exec  uuid.UUID
+}
+
+func CompleteBatch(ctx context.Context, pool *pgxpool.Pool, batch []Done) ([]uuid.UUID, error) {
+	ids := make([]uuid.UUID, len(batch))
+	fences := make([]int64, len(batch))
+	execs := make([]uuid.UUID, len(batch))
+	for i, d := range batch {
+		ids[i], fences[i], execs[i] = d.JobID, d.Fence, d.Exec
+	}
+
+	rows, err := pool.Query(ctx, reportBatchSQL, ids, fences, execs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

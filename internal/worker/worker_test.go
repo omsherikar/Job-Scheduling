@@ -47,6 +47,9 @@ func config(queueID, workerID uuid.UUID, lease time.Duration) worker.Config {
 		Lease:       lease,
 		Drain:       2 * time.Second,
 		Poll:        30 * time.Millisecond,
+
+		CompleteBatch: 25,
+		CompleteWait:  20 * time.Millisecond,
 	}
 }
 
@@ -342,6 +345,9 @@ func TestProgressOnHeartbeat(t *testing.T) {
 		Lease:       300 * time.Millisecond,
 		Drain:       200 * time.Millisecond,
 		Poll:        20 * time.Millisecond,
+
+		CompleteBatch: 25,
+		CompleteWait:  20 * time.Millisecond,
 	}
 
 	runCtx, stop := context.WithCancel(ctx)
@@ -401,6 +407,9 @@ func TestHandlerPanic(t *testing.T) {
 		Lease:       30 * time.Second,
 		Drain:       200 * time.Millisecond,
 		Poll:        20 * time.Millisecond,
+
+		CompleteBatch: 25,
+		CompleteWait:  20 * time.Millisecond,
 	}
 	stop, errs := run(t, pool, cfg, handlers)
 	done.Wait()

@@ -33,6 +33,20 @@ type Config struct {
 	Lease       time.Duration
 	Drain       time.Duration
 	Poll        time.Duration
+
+	CompleteBatch int
+	CompleteWait  time.Duration
+}
+
+func DefaultConfig() Config {
+	return Config{
+		Concurrency:   4,
+		Lease:         30 * time.Second,
+		Drain:         30 * time.Second,
+		Poll:          time.Second,
+		CompleteBatch: 25,
+		CompleteWait:  50 * time.Millisecond,
+	}
 }
 
 func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[string]Handler) error {
@@ -41,6 +55,13 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 
 	runCtx, abort := context.WithCancel(context.Background())
 	defer abort()
+
+	completions := make(chan finished, cfg.CompleteBatch*2)
+	completed := make(chan struct{})
+	go func() {
+		defer close(completed)
+		completeLoop(pool, cfg, completions)
+	}()
 
 	var wg sync.WaitGroup
 	var active atomic.Int64
@@ -63,7 +84,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 				go func(c jobs.Claimed) {
 					defer wg.Done()
 					defer active.Add(-1)
-					runOne(stopCtx, runCtx, pool, cfg, handlers, c)
+					runOne(stopCtx, runCtx, pool, cfg, handlers, completions, c)
 				}(c)
 			}
 		}
@@ -81,5 +102,8 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 		abort()
 		<-done
 	}
+
+	close(completions)
+	<-completed
 	return ctx.Err()
 }
