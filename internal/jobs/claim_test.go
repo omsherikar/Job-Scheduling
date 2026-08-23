@@ -17,10 +17,17 @@ import (
 
 func seedJobs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, queueID, policyID uuid.UUID, n int) {
 	t.Helper()
-	_, err := pool.Exec(ctx, `insert into jobs (project_id, queue_id, type, retry_policy_id, status, run_at)
+	tx, err := pool.Begin(ctx)
+	testdb.Must(t, err)
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, "set local statement_timeout = '180s'")
+	testdb.Must(t, err)
+	_, err = tx.Exec(ctx, `insert into jobs (project_id, queue_id, type, retry_policy_id, status, run_at)
 		select $1, $2, 'noop', $3, 'queued', fl.now() from generate_series(1, $4)`,
 		projectID, queueID, policyID, n)
 	testdb.Must(t, err)
+	testdb.Must(t, tx.Commit(ctx))
 }
 
 func claimReqs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, queueID uuid.UUID, n, freeSlots int) []jobs.ClaimRequest {

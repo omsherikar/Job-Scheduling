@@ -13,10 +13,14 @@ import (
 const breakerQueuesSQL = `select id, project_id, breaker_state::text, breaker_open_until from queues`
 
 const breakerWindowSQL = `
-select outcome::text from job_executions
- where queue_id = $1 and outcome is not null
- order by finished_at desc
- limit $2`
+select q.id, x.outcome::text
+  from queues q
+ cross join lateral (
+   select outcome, finished_at from job_executions e
+    where e.queue_id = q.id and e.outcome is not null
+    order by e.finished_at desc
+    limit $1
+ ) x`
 
 const breakerProbeSQL = `
 select outcome::text from job_executions
@@ -95,15 +99,16 @@ func Breaker(ctx context.Context, pool *pgxpool.Pool, window, trip int, cooldown
 		return 0, err
 	}
 
+	failures, err := failureCounts(ctx, pool, window)
+	if err != nil {
+		return 0, err
+	}
+
 	changed := 0
 	for _, q := range qs {
 		switch q.state {
 		case "closed":
-			failures, err := countFailures(ctx, pool, q.id, window)
-			if err != nil {
-				return 0, err
-			}
-			if failures >= trip {
+			if failures[q.id] >= trip {
 				var n int
 				if err := pool.QueryRow(ctx, breakerOpenSQL, q.id, cooldown.Seconds()).Scan(&n); err != nil {
 					return 0, err
@@ -138,21 +143,22 @@ func Breaker(ctx context.Context, pool *pgxpool.Pool, window, trip int, cooldown
 	return changed, nil
 }
 
-func countFailures(ctx context.Context, pool *pgxpool.Pool, queueID uuid.UUID, window int) (int, error) {
-	rows, err := pool.Query(ctx, breakerWindowSQL, queueID, window)
+func failureCounts(ctx context.Context, pool *pgxpool.Pool, window int) (map[uuid.UUID]int, error) {
+	rows, err := pool.Query(ctx, breakerWindowSQL, window)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer rows.Close()
-	n := 0
+	out := map[uuid.UUID]int{}
 	for rows.Next() {
+		var id uuid.UUID
 		var outcome string
-		if err := rows.Scan(&outcome); err != nil {
-			return 0, err
+		if err := rows.Scan(&id, &outcome); err != nil {
+			return nil, err
 		}
 		if isFailure(outcome) {
-			n++
+			out[id]++
 		}
 	}
-	return n, rows.Err()
+	return out, rows.Err()
 }

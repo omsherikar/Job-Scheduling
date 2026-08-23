@@ -8,7 +8,7 @@ import (
 )
 
 const rollupSQL = `
-with closed as (
+with closed as materialized (
   select queue_id,
          date_trunc('minute', finished_at) as minute,
          percentile_cont(0.5) within group (order by duration_ms) as p50,

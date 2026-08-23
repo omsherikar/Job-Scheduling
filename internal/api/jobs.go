@@ -146,16 +146,11 @@ const jobLogsSQL = `
 select id, execution_id, ts, level, message, meta
 from job_logs where execution_id = any($1) order by ts, id`
 
-const listJobsSQL = `
+const listJobsHead = `
 select id, queue_id, type, status::text, priority, attempt_count, replay_generation, run_at, created_at, batch_id
-from jobs
-where project_id = $1
-  and ($2::job_status is null or status = $2::job_status)
-  and ($3::text is null or type = $3)
-  and ($4::uuid is null or queue_id = $4)
-  and ($5::timestamptz is null or (created_at, id) < ($5, $6))
-order by created_at desc, id desc
-limit $7`
+from jobs`
+
+const listJobsTail = `order by created_at desc, id desc`
 
 const cancelSQL = `
 with prev as (
@@ -419,7 +414,20 @@ func (s *Server) listJobs(ctx context.Context, tx pgx.Tx, r *http.Request, sc sc
 	}
 	limit := pageLimit(r)
 
-	rows, err := tx.Query(ctx, listJobsSQL, sc.projectID, status, typ, queueFilter, cursorTime, cursorID, limit)
+	var qb query
+	qb.eq("project_id", sc.projectID)
+	if status != nil {
+		qb.eq("status", *status)
+	}
+	if typ != nil {
+		qb.eq("type", *typ)
+	}
+	if queueFilter != nil {
+		qb.eq("queue_id", *queueFilter)
+	}
+	qb.before("(created_at, id)", cursorTime, cursorID)
+
+	rows, err := tx.Query(ctx, qb.build(listJobsHead, listJobsTail, limit), qb.args...)
 	if err != nil {
 		return result{}, err
 	}

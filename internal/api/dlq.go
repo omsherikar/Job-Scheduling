@@ -20,14 +20,11 @@ type dlqItem struct {
 	ReplayedAt   *time.Time `json:"replayed_at"`
 }
 
-const listDLQSQL = `
+const listDLQHead = `
 select job_id, queue_id, reason, last_error_class, last_error_message, dead_at, replayed_at
-from dead_letter_jobs
-where project_id = $1
-  and ($2::uuid is null or queue_id = $2)
-  and ($3::timestamptz is null or (dead_at, job_id) < ($3, $4))
-order by dead_at desc, job_id desc
-limit $5`
+from dead_letter_jobs`
+
+const listDLQTail = `order by dead_at desc, job_id desc`
 
 const replaySQL = `
 update jobs set
@@ -57,7 +54,14 @@ func (s *Server) listDLQ(ctx context.Context, tx pgx.Tx, r *http.Request, sc sco
 	}
 	limit := pageLimit(r)
 
-	rows, err := tx.Query(ctx, listDLQSQL, sc.projectID, queueFilter, cursorTime, cursorID, limit)
+	var qb query
+	qb.eq("project_id", sc.projectID)
+	if queueFilter != nil {
+		qb.eq("queue_id", *queueFilter)
+	}
+	qb.before("(dead_at, job_id)", cursorTime, cursorID)
+
+	rows, err := tx.Query(ctx, qb.build(listDLQHead, listDLQTail, limit), qb.args...)
 	if err != nil {
 		return result{}, err
 	}
