@@ -9,21 +9,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: fenceline
-          POSTGRES_PASSWORD: fenceline
-          POSTGRES_DB: fenceline
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U fenceline -d fenceline"
-          --health-interval 2s
-          --health-timeout 3s
-          --health-retries 30
-
     env:
       DATABASE_URL: postgres://fenceline:fenceline@localhost:5433/fenceline
       TEST_DATABASE_URL: postgres://fenceline:fenceline@localhost:5433/postgres
@@ -35,6 +20,11 @@ jobs:
         with:
           go-version: '1.24'
           cache: true
+
+      - name: start postgres
+        run: |
+          docker compose up -d postgres
+          until docker compose exec -T postgres pg_isready -U fenceline -d fenceline; do sleep 1; done
 
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
