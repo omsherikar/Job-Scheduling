@@ -11,12 +11,13 @@ import (
 
 const pickSQL = `
 select id from jobs j
- where j.status in ('completed', 'cancelled')
+ where j.status in ('completed', 'cancelled', 'dead_letter')
    and j.finished_at < fl.now() - make_interval(secs => $1)
+   and (j.status <> 'dead_letter' or j.finished_at < fl.now() - make_interval(secs => $2))
    and not exists (select 1 from job_executions x where x.job_id = j.id and x.finished_at is null)
  order by j.finished_at
  for update skip locked
- limit $2`
+ limit $3`
 
 const jobPartitionsSQL = `
 select fl.ensure_partitions('jobs_archive', min(finished_at)::date, max(finished_at)::date)
@@ -31,6 +32,10 @@ select fl.ensure_partitions('job_logs_archive', min(l.ts)::date, max(l.ts)::date
   from job_logs l join job_executions x on x.id = l.execution_id
  where x.job_id = any($1)`
 
+const deadLetterPartitionsSQL = `
+select fl.ensure_partitions('dead_letter_jobs_archive', min(dead_at)::date, max(dead_at)::date)
+  from dead_letter_jobs where job_id = any($1)`
+
 const moveLogsSQL = `
 with moved as (
   delete from job_logs l
@@ -39,6 +44,17 @@ with moved as (
   returning l.id, l.execution_id, l.ts, l.level, l.message, l.meta
 )
 insert into job_logs_archive (id, execution_id, ts, level, message, meta)
+select * from moved`
+
+const moveDeadLettersSQL = `
+with moved as (
+  delete from dead_letter_jobs where job_id = any($1)
+  returning job_id, queue_id, project_id, reason, last_error_class, last_error_message,
+            execution_history, dead_at, replayed_at, replayed_by
+)
+insert into dead_letter_jobs_archive
+  (job_id, queue_id, project_id, reason, last_error_class, last_error_message,
+   execution_history, dead_at, replayed_at, replayed_by)
 select * from moved`
 
 const moveExecsSQL = `
@@ -70,29 +86,31 @@ select *, finished_at from moved`
 const pruneSQL = `delete from idempotency_keys where expires_at < fl.now()`
 
 type Config struct {
-	Every time.Duration
-	Prune time.Duration
-	After time.Duration
-	Batch int
+	Every      time.Duration
+	Prune      time.Duration
+	After      time.Duration
+	DeadLetter time.Duration
+	Batch      int
 }
 
 func DefaultConfig() Config {
 	return Config{
-		Every: time.Minute,
-		Prune: 10 * time.Minute,
-		After: 24 * time.Hour,
-		Batch: 500,
+		Every:      time.Minute,
+		Prune:      10 * time.Minute,
+		After:      24 * time.Hour,
+		DeadLetter: 30 * 24 * time.Hour,
+		Batch:      500,
 	}
 }
 
-func Archive(ctx context.Context, pool *pgxpool.Pool, after time.Duration, limit int) (int, error) {
+func Archive(ctx context.Context, pool *pgxpool.Pool, after, deadLetter time.Duration, limit int) (int, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback(ctx)
 
-	rows, err := tx.Query(ctx, pickSQL, after.Seconds(), limit)
+	rows, err := tx.Query(ctx, pickSQL, after.Seconds(), deadLetter.Seconds(), limit)
 	if err != nil {
 		return 0, err
 	}
@@ -113,12 +131,12 @@ func Archive(ctx context.Context, pool *pgxpool.Pool, after time.Duration, limit
 		return 0, nil
 	}
 
-	for _, q := range []string{logPartitionsSQL, execPartitionsSQL, jobPartitionsSQL} {
+	for _, q := range []string{logPartitionsSQL, execPartitionsSQL, jobPartitionsSQL, deadLetterPartitionsSQL} {
 		if _, err := tx.Exec(ctx, q, ids); err != nil {
 			return 0, err
 		}
 	}
-	for _, q := range []string{moveLogsSQL, moveExecsSQL, moveJobsSQL} {
+	for _, q := range []string{moveLogsSQL, moveExecsSQL, moveDeadLettersSQL, moveJobsSQL} {
 		if _, err := tx.Exec(ctx, q, ids); err != nil {
 			return 0, err
 		}
@@ -150,7 +168,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 			return nil
 		case <-move.C:
 			for {
-				n, err := Archive(ctx, pool, cfg.After, cfg.Batch)
+				n, err := Archive(ctx, pool, cfg.After, cfg.DeadLetter, cfg.Batch)
 				if err != nil {
 					if ctx.Err() == nil {
 						log.Printf("archive: %v", err)

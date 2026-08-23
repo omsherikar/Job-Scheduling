@@ -64,7 +64,7 @@ func TestArchive(t *testing.T) {
 	testdb.Must(t, jobs.Complete(ctx, pool, jobID, fence, execID))
 
 	testdb.SetNow(t, pool, testdb.Epoch)
-	n, err := archiver.Archive(ctx, pool, 24*time.Hour, 100)
+	n, err := archiver.Archive(ctx, pool, 24*time.Hour, 30*24*time.Hour, 100)
 	testdb.Must(t, err)
 	if n != 1 {
 		t.Fatalf("archived = %d, want 1", n)
@@ -133,7 +133,7 @@ func TestArchiveRecent(t *testing.T) {
 	testdb.Must(t, pool.QueryRow(ctx, `select fence from jobs where id = $1`, jobID).Scan(&fence))
 	testdb.Must(t, jobs.Complete(ctx, pool, jobID, fence, execID))
 
-	n, err := archiver.Archive(ctx, pool, 24*time.Hour, 100)
+	n, err := archiver.Archive(ctx, pool, 24*time.Hour, 30*24*time.Hour, 100)
 	testdb.Must(t, err)
 	if n != 0 {
 		t.Fatalf("archived = %d, want 0", n)
@@ -157,14 +157,14 @@ func TestArchiveOpenExecution(t *testing.T) {
 	testdb.Must(t, err)
 
 	testdb.Advance(t, pool, 48*time.Hour)
-	n, err := archiver.Archive(ctx, pool, 24*time.Hour, 100)
+	n, err := archiver.Archive(ctx, pool, 24*time.Hour, 30*24*time.Hour, 100)
 	testdb.Must(t, err)
 	if n != 0 {
 		t.Fatalf("archived = %d, want 0", n)
 	}
 }
 
-func TestArchiveSkipsDeadLetter(t *testing.T) {
+func TestArchiveDeadLetter(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.New(t)
 	testdb.SetNow(t, pool, testdb.Epoch)
@@ -178,13 +178,36 @@ func TestArchiveSkipsDeadLetter(t *testing.T) {
 	testdb.Must(t, jobs.Fail(ctx, pool, jobID, fence, jobs.ErrPermanent))
 
 	testdb.Advance(t, pool, 48*time.Hour)
-	n, err := archiver.Archive(ctx, pool, 24*time.Hour, 100)
+	n, err := archiver.Archive(ctx, pool, 24*time.Hour, 30*24*time.Hour, 100)
 	testdb.Must(t, err)
 	if n != 0 {
 		t.Fatalf("archived = %d, want 0", n)
 	}
 	if c := count(t, ctx, pool, `select count(*) from dead_letter_jobs where job_id = $1`, jobID); c != 1 {
 		t.Errorf("dead letter rows = %d, want 1", c)
+	}
+
+	testdb.Advance(t, pool, 40*24*time.Hour)
+	n, err = archiver.Archive(ctx, pool, 24*time.Hour, 30*24*time.Hour, 100)
+	testdb.Must(t, err)
+	if n != 1 {
+		t.Fatalf("archived = %d, want 1", n)
+	}
+	if c := count(t, ctx, pool, `select count(*) from dead_letter_jobs where job_id = $1`, jobID); c != 0 {
+		t.Errorf("hot dead letter rows = %d, want 0", c)
+	}
+	if c := count(t, ctx, pool, `select count(*) from dead_letter_jobs_archive where job_id = $1`, jobID); c != 1 {
+		t.Errorf("archived dead letter rows = %d, want 1", c)
+	}
+	if c := count(t, ctx, pool, `select count(*) from jobs_archive where id = $1`, jobID); c != 1 {
+		t.Errorf("archived jobs = %d, want 1", c)
+	}
+
+	var reason string
+	testdb.Must(t, pool.QueryRow(ctx,
+		`select reason from dead_letter_jobs_archive where job_id = $1`, jobID).Scan(&reason))
+	if reason != "permanent_error" {
+		t.Errorf("reason = %q, want permanent_error", reason)
 	}
 }
 

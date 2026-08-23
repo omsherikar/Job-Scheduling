@@ -93,7 +93,7 @@ func TestLowWater(t *testing.T) {
 	var kept int64
 	testdb.Must(t, pool.QueryRow(ctx, `select id from events where topic = 'new'`).Scan(&kept))
 
-	_, err = scheduler.Maintain(ctx, pool, 7*24*time.Hour)
+	_, err = scheduler.Maintain(ctx, pool, 7*24*time.Hour, 90*24*time.Hour, 30*24*time.Hour)
 	testdb.Must(t, err)
 
 	var low int64

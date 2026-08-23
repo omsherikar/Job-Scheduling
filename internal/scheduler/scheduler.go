@@ -18,11 +18,15 @@ type Config struct {
 	Age       time.Duration
 	Partition time.Duration
 	Notify    time.Duration
+	Rollup    time.Duration
 
 	Batch      int
 	AgeAfter   time.Duration
 	AgeCeiling int
-	Retention  time.Duration
+	Hot        time.Duration
+	Cold       time.Duration
+	Horizon    time.Duration
+	Lookback   time.Duration
 	Window     int
 	Trip       int
 	Cooldown   time.Duration
@@ -37,11 +41,15 @@ func DefaultConfig() Config {
 		Age:       30 * time.Second,
 		Partition: time.Hour,
 		Notify:    20 * time.Millisecond,
+		Rollup:    time.Minute,
 
 		Batch:      100,
 		AgeAfter:   5 * time.Minute,
 		AgeCeiling: 3,
-		Retention:  7 * 24 * time.Hour,
+		Hot:        7 * 24 * time.Hour,
+		Cold:       90 * 24 * time.Hour,
+		Horizon:    30 * 24 * time.Hour,
+		Lookback:   10 * time.Minute,
 		Window:     20,
 		Trip:       10,
 		Cooldown:   30 * time.Second,
@@ -82,7 +90,11 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 		return err
 	})
 	start("partition", cfg.Partition, func(ctx context.Context) error {
-		_, err := Maintain(ctx, pool, cfg.Retention)
+		_, err := Maintain(ctx, pool, cfg.Hot, cfg.Cold, cfg.Horizon)
+		return err
+	})
+	start("rollup", cfg.Rollup, func(ctx context.Context) error {
+		_, err := Rollup(ctx, pool, cfg.Lookback)
 		return err
 	})
 
