@@ -248,7 +248,7 @@ func jitter(d time.Duration) time.Duration {
 	return d/2 + time.Duration(rand.Int64N(int64(d/2)+1))
 }
 
-func wait(ctx context.Context, d time.Duration) {
+func wait(ctx context.Context, d time.Duration, wake <-chan struct{}) {
 	if d <= 0 {
 		return
 	}
@@ -256,6 +256,7 @@ func wait(ctx context.Context, d time.Duration) {
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
+	case <-wake:
 	case <-t.C:
 	}
 }

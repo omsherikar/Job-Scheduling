@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/shrutu0929/fenceline/internal/db"
 	"github.com/shrutu0929/fenceline/internal/scheduler"
@@ -20,7 +21,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := db.Open(ctx, url, 10)
+	pool, err := db.Open(ctx, url, 10, 30*time.Second)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -35,7 +35,7 @@ func New(t *testing.T) *pgxpool.Pool {
 	ctx := context.Background()
 	name := "fl_t_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 
-	admin, err := db.Open(ctx, dbURL(base, "postgres"), 1)
+	admin, err := db.Open(ctx, dbURL(base, "postgres"), 1, 0)
 	if err != nil {
 		t.Fatalf("connect admin: %v", err)
 	}
@@ -45,7 +45,7 @@ func New(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("clone template: %v", err)
 	}
 
-	pool, err := db.Open(ctx, dbURL(base, name), 40)
+	pool, err := db.Open(ctx, dbURL(base, name), 40, 0)
 	if err != nil {
 		admin.Close()
 		t.Fatalf("connect %s: %v", name, err)
@@ -64,7 +64,7 @@ func New(t *testing.T) *pgxpool.Pool {
 func ensureTemplate(base string) error {
 	ctx := context.Background()
 
-	admin, err := db.Open(ctx, dbURL(base, "postgres"), 1)
+	admin, err := db.Open(ctx, dbURL(base, "postgres"), 1, 0)
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func ensureTemplate(base string) error {
 		}
 	}
 
-	tpl, err := db.Open(ctx, dbURL(base, template), 1)
+	tpl, err := db.Open(ctx, dbURL(base, template), 1, 0)
 	if err != nil {
 		return err
 	}

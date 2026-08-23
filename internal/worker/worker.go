@@ -42,6 +42,7 @@ type Config struct {
 	Drain       time.Duration
 	Poll        time.Duration
 	Heartbeat   time.Duration
+	Listen      bool
 
 	CompleteBatch int
 	CompleteWait  time.Duration
@@ -64,6 +65,7 @@ func DefaultConfig() Config {
 		Drain:         30 * time.Second,
 		Poll:          time.Second,
 		Heartbeat:     10 * time.Second,
+		Listen:        true,
 		CompleteBatch: 25,
 		CompleteWait:  50 * time.Millisecond,
 	}
@@ -101,6 +103,11 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 		}
 	}()
 
+	wake := make(chan struct{}, 1)
+	if cfg.Listen {
+		go listen(runCtx, pool, wake)
+	}
+
 	completions := make(chan finished, cfg.CompleteBatch*2)
 	completed := make(chan struct{})
 	go func() {
@@ -134,7 +141,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config, handlers map[strin
 				}(c)
 			}
 		}
-		wait(stopCtx, jitter(cfg.Poll))
+		wait(stopCtx, jitter(cfg.Poll), wake)
 	}
 
 	done := make(chan struct{})

@@ -32,7 +32,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := db.Open(ctx, url, 20)
+	pool, err := db.Open(ctx, url, 20, 10*time.Second)
 	if err != nil {
 		log.Fatal(err)
 	}

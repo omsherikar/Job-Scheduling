@@ -35,6 +35,15 @@ func tooOld(detail string) *apiError {
 	return &apiError{status: 410, title: "cursor too old", detail: detail}
 }
 
+func unavailable(detail string) *apiError {
+	return &apiError{
+		status:  503,
+		title:   "unavailable",
+		detail:  detail,
+		headers: map[string]string{"Retry-After": "1"},
+	}
+}
+
 func tooMany(detail string, retryAfter int) *apiError {
 	return &apiError{
 		status:  429,

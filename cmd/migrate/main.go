@@ -16,7 +16,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	pool, err := db.Open(ctx, url, 1)
+	pool, err := db.Open(ctx, url, 1, 0)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

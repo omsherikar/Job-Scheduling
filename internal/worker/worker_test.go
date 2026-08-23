@@ -703,3 +703,41 @@ func TestRegisterUnknownQueue(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, worker.ErrNoQueue)
 	}
 }
+
+func TestListenStartsSooner(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 4)
+	workerID := testdb.NewWorker(t, ctx, pool, projectID)
+
+	started := make(chan struct{}, 1)
+	handlers := map[string]worker.Handler{
+		"noop": func(ctx context.Context, j worker.Job) error {
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			return nil
+		},
+	}
+
+	cfg := config(queueID, workerID, 30*time.Second)
+	cfg.Poll = 30 * time.Second
+	cfg.Listen = true
+	cancel, done := run(t, pool, cfg, handlers)
+	defer func() { cancel(); <-done }()
+
+	time.Sleep(200 * time.Millisecond)
+	testdb.NewJob(t, ctx, pool, projectID, queueID, policyID)
+	_, err := pool.Exec(ctx, `select pg_notify('fl_events', '')`)
+	testdb.Must(t, err)
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no start within 5s, want one")
+	}
+}

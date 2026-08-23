@@ -132,6 +132,12 @@ in its payload, and `fail` always errors.
 
 ## Events
 
+The scheduler turns new events into one payload-less `notify`, coalesced, and workers wake on
+it instead of waiting out their poll. Measured over 200 jobs arriving 15ms apart at
+concurrency 8 with a one second poll: enqueue to start p50 7472ms and p99 14624ms on polling
+alone, against p50 17ms and p99 278ms with the notify path on. A worker is correct either
+way; without it, arrivals faster than one batch per poll simply queue up.
+
 Every transition writes to an outbox. `GET /projects/{id}/events?after=<id>` replays from a
 cursor; `GET /projects/{id}/events/stream` is the same thing over a websocket. Frames carry
 `prev_id` so a client can detect a gap without trusting the server, and a cursor older than

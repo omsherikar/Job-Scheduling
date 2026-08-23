@@ -118,6 +118,11 @@ func retryable(err error) bool {
 	return false
 }
 
+func isTimeout(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == "57014"
+}
+
 func isUnique(err error) bool {
 	var pg *pgconn.PgError
 	return errors.As(err, &pg) && pg.Code == "23505"
@@ -161,7 +166,11 @@ func (s *Server) writeError(w http.ResponseWriter, rid string, err error) {
 	var ae *apiError
 	if !errors.As(err, &ae) {
 		log.Printf("request %s: %v", rid, err)
-		ae = &apiError{status: 500, title: "internal error"}
+		if isTimeout(err) {
+			ae = unavailable("the database took too long")
+		} else {
+			ae = &apiError{status: 500, title: "internal error"}
+		}
 	}
 	for k, v := range ae.headers {
 		w.Header().Set(k, v)
