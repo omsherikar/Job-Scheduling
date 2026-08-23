@@ -24,6 +24,7 @@ type submitReq struct {
 	RunAt         *time.Time      `json:"run_at"`
 	TimeoutMs     *int            `json:"timeout_ms"`
 	RetryPolicyID *string         `json:"retry_policy_id"`
+	DependsOn     []string        `json:"depends_on"`
 }
 
 type submitView struct {
@@ -109,10 +110,31 @@ const queueDefaultsSQL = `select retry_policy_id, default_priority, max_depth fr
 const queuedCountSQL = `select count(*) from jobs where queue_id = $1 and status = 'queued'`
 
 const insertJobSQL = `
-insert into jobs (queue_id, project_id, type, payload, priority, run_at, timeout_ms, retry_policy_id, status)
-values ($1, $2, $3, $4::jsonb, $5, coalesce($6, fl.now()), $7, $8,
-        case when coalesce($6, fl.now()) > fl.now() then 'scheduled' else 'queued' end::job_status)
+insert into jobs (queue_id, project_id, type, payload, priority, run_at, timeout_ms, retry_policy_id,
+                  pending_deps, status)
+values ($1, $2, $3, $4::jsonb, $5, coalesce($6, fl.now()), $7, $8, $9,
+        case when $9 > 0 or coalesce($6, fl.now()) > fl.now()
+             then 'scheduled' else 'queued' end::job_status)
 returning id, status::text, run_at, created_at`
+
+const parentsSQL = `
+select count(*) from jobs
+ where id = any($1) and project_id = $2
+   and status not in ('completed', 'cancelled', 'dead_letter')`
+
+const insertDepsSQL = `
+insert into job_dependencies (parent_id, child_id)
+select unnest($1::uuid[]), $2`
+
+const cycleSQL = `
+with recursive up as (
+  select parent_id as id, array[$1::uuid] as path from job_dependencies where child_id = $1
+  union all
+  select d.parent_id, up.path || d.child_id
+    from job_dependencies d join up on d.child_id = up.id
+   where not d.parent_id = any(up.path)
+)
+select exists (select 1 from up where id = $1)`
 
 const submitViewSQL = `select id, queue_id, type, status::text, priority, run_at, created_at from jobs where id = $1`
 
@@ -267,12 +289,23 @@ func (s *Server) submitJob(ctx context.Context, tx pgx.Tx, r *http.Request, sc s
 		}
 	}
 
+	parents, err := parentIDs(req.DependsOn)
+	if err != nil {
+		return result{}, err
+	}
+	pending := 0
+	if len(parents) > 0 {
+		if err := tx.QueryRow(ctx, parentsSQL, parents, sc.projectID).Scan(&pending); err != nil {
+			return result{}, err
+		}
+	}
+
 	var v submitView
 	v.QueueID = sc.entityID
 	v.Type = req.Type
 	v.Priority = priority
-	err := tx.QueryRow(ctx, insertJobSQL, sc.entityID, sc.projectID, req.Type, string(payload),
-		priority, req.RunAt, timeout, policy).Scan(&v.ID, &v.Status, &v.RunAt, &v.CreatedAt)
+	err = tx.QueryRow(ctx, insertJobSQL, sc.entityID, sc.projectID, req.Type, string(payload),
+		priority, req.RunAt, timeout, policy, pending).Scan(&v.ID, &v.Status, &v.RunAt, &v.CreatedAt)
 	if err != nil {
 		return result{}, err
 	}
@@ -286,10 +319,49 @@ func (s *Server) submitJob(ctx context.Context, tx pgx.Tx, r *http.Request, sc s
 		}
 	}
 
+	if len(parents) > 0 {
+		if err := link(ctx, tx, v.ID, parents); err != nil {
+			return result{}, err
+		}
+	}
+
 	if err := emit(ctx, tx, "job.submitted", v.ID, sc.projectID, map[string]any{"status": v.Status, "type": req.Type}); err != nil {
 		return result{}, err
 	}
 	return result{status: http.StatusCreated, body: v, entityID: v.ID}, nil
+}
+
+func parentIDs(depends []string) ([]uuid.UUID, error) {
+	ids := make([]uuid.UUID, 0, len(depends))
+	for _, p := range depends {
+		id, err := uuid.Parse(p)
+		if err != nil {
+			return nil, badRequest("invalid depends_on")
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func link(ctx context.Context, tx pgx.Tx, child uuid.UUID, parents []uuid.UUID) error {
+	if _, err := tx.Exec(ctx, insertDepsSQL, parents, child); err != nil {
+		if isFKViolation(err) {
+			return badRequest("depends_on names a job that does not exist")
+		}
+		if isCheck(err) {
+			return badRequest("a job cannot depend on itself")
+		}
+		return err
+	}
+
+	var cycle bool
+	if err := tx.QueryRow(ctx, cycleSQL, child).Scan(&cycle); err != nil {
+		return err
+	}
+	if cycle {
+		return badRequest("depends_on would create a cycle")
+	}
+	return nil
 }
 
 func loadSubmitView(ctx context.Context, tx pgx.Tx, id uuid.UUID) (submitView, error) {

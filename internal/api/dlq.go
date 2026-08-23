@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,19 @@ update jobs set
   worker_id = null
 where id = $1 and status = 'dead_letter'
 returning replay_generation`
+
+const cancelledKinSQL = `
+with recursive down as (
+  select d.child_id as id, array[d.parent_id, d.child_id] as path
+    from job_dependencies d where d.parent_id = $1
+  union all
+  select d.child_id, down.path || d.child_id
+    from job_dependencies d join down on d.parent_id = down.id
+   where not d.child_id = any(down.path)
+)
+select j.id from jobs j
+ where j.id in (select down.id from down) and j.status = 'cancelled'
+ order by j.id`
 
 const markReplayedSQL = `update dead_letter_jobs set replayed_at = fl.now(), replayed_by = $2 where job_id = $1`
 
@@ -88,8 +102,29 @@ func (s *Server) listDLQ(ctx context.Context, tx pgx.Tx, r *http.Request, sc sco
 }
 
 func (s *Server) replayJob(ctx context.Context, tx pgx.Tx, r *http.Request, sc scope) (result, error) {
+	rows, err := tx.Query(ctx, cancelledKinSQL, sc.entityID)
+	if err != nil {
+		return result{}, err
+	}
+	var kin []string
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return result{}, err
+		}
+		kin = append(kin, id.String())
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return result{}, err
+	}
+	if len(kin) > 0 {
+		return result{}, conflict("cancelled descendants would be revived: " + strings.Join(kin, ", "))
+	}
+
 	var gen int
-	err := tx.QueryRow(ctx, replaySQL, sc.entityID).Scan(&gen)
+	err = tx.QueryRow(ctx, replaySQL, sc.entityID).Scan(&gen)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result{}, conflict("job is not in the dead letter queue")
 	}
