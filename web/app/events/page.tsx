@@ -39,28 +39,30 @@ export default function Events() {
         <span className="dim">{seen.current} received</span>
         {gaps > 0 && <span className="bad">{gaps} gaps, history was dropped</span>}
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>id</th>
-            <th>at</th>
-            <th>topic</th>
-            <th>entity</th>
-          </tr>
-        </thead>
-        <tbody>
-          {events.map((e) => (
-            <tr key={e.id}>
-              <td>{e.id}</td>
-              <td>{clock(e.created_at)}</td>
-              <td>{e.topic}</td>
-              <td>
-                <Link href={`/jobs/${e.entity_id}`}>{e.entity_id.slice(0, 8)}</Link>
-              </td>
+      <div className="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>id</th>
+              <th>at</th>
+              <th>topic</th>
+              <th>entity</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {events.map((e) => (
+              <tr key={e.id}>
+                <td>{e.id}</td>
+                <td>{clock(e.created_at)}</td>
+                <td>{e.topic}</td>
+                <td>
+                  <Link href={`/jobs/${e.entity_id}`}>{e.entity_id.slice(0, 8)}</Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {events.length === 0 && <p className="dim">waiting for events</p>}
     </>
   );

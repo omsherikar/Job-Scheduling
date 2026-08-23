@@ -49,38 +49,40 @@ export default function Dlq() {
     <>
       <h1>dead letter queue</h1>
       {error && <div className="error">{error}</div>}
-      <table>
-        <thead>
-          <tr>
-            <th>job</th>
-            <th>reason</th>
-            <th>error</th>
-            <th>dead</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((d) => (
-            <tr key={d.job_id}>
-              <td>
-                <Link href={`/jobs/${d.job_id}`}>{d.job_id.slice(0, 8)}</Link>
-              </td>
-              <td>{d.reason}</td>
-              <td>{d.last_error_message ?? "-"}</td>
-              <td>{ago(d.dead_at)}</td>
-              <td>
-                {d.replayed_at ? (
-                  <span className="dim">replayed</span>
-                ) : (
-                  <button disabled={busy === d.job_id} onClick={() => replay(d.job_id)}>
-                    replay
-                  </button>
-                )}
-              </td>
+      <div className="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>job</th>
+              <th>reason</th>
+              <th>error</th>
+              <th>dead</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((d) => (
+              <tr key={d.job_id}>
+                <td>
+                  <Link href={`/jobs/${d.job_id}`}>{d.job_id.slice(0, 8)}</Link>
+                </td>
+                <td>{d.reason}</td>
+                <td>{d.last_error_message ?? "-"}</td>
+                <td>{ago(d.dead_at)}</td>
+                <td>
+                  {d.replayed_at ? (
+                    <span className="dim">replayed</span>
+                  ) : (
+                    <button disabled={busy === d.job_id} onClick={() => replay(d.job_id)}>
+                      replay
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {items.length === 0 && !error && <p className="dim">nothing dead lettered</p>}
     </>
   );

@@ -6,6 +6,8 @@ export type Queue = {
   in_flight: number;
   breaker_state: string;
   rl_limit_per_sec: number;
+  rl_burst?: number;
+  default_priority?: number;
 };
 
 export type Tier = {

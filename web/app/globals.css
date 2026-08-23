@@ -66,6 +66,10 @@ h2 {
   color: var(--dim);
 }
 
+.scroll {
+  overflow-x: auto;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -231,4 +235,59 @@ pre {
 .login input {
   width: 100%;
   margin-top: 4px;
+}
+
+.field {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.field input {
+  display: block;
+  margin-top: 3px;
+  width: 200px;
+  max-width: 100%;
+}
+
+@media (max-width: 720px) {
+  nav {
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding: 10px 12px;
+  }
+
+  nav .spacer {
+    display: none;
+  }
+
+  nav select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  main {
+    padding: 12px;
+  }
+
+  .cards {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  }
+
+  .card .value {
+    font-size: 17px;
+  }
+
+  th,
+  td {
+    padding: 6px 8px;
+  }
+
+  .controls {
+    gap: 6px;
+  }
+
+  .login {
+    margin: 40px auto;
+    padding: 0 12px;
+  }
 }

@@ -82,34 +82,36 @@ function JobList() {
         </button>
       </div>
       {error && <div className="error">{error}</div>}
-      <table>
-        <thead>
-          <tr>
-            <th>id</th>
-            <th>type</th>
-            <th>status</th>
-            <th>priority</th>
-            <th>attempts</th>
-            <th>run at</th>
-            <th>age</th>
-          </tr>
-        </thead>
-        <tbody>
-          {jobs.map((j) => (
-            <tr key={j.id}>
-              <td>
-                <Link href={`/jobs/${j.id}`}>{j.id.slice(0, 8)}</Link>
-              </td>
-              <td>{j.type}</td>
-              <td>{j.status}</td>
-              <td>{j.priority}</td>
-              <td>{j.attempt_count}</td>
-              <td>{clock(j.run_at)}</td>
-              <td>{ago(j.created_at)}</td>
+      <div className="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>id</th>
+              <th>type</th>
+              <th>status</th>
+              <th>priority</th>
+              <th>attempts</th>
+              <th>run at</th>
+              <th>age</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {jobs.map((j) => (
+              <tr key={j.id}>
+                <td>
+                  <Link href={`/jobs/${j.id}`}>{j.id.slice(0, 8)}</Link>
+                </td>
+                <td>{j.type}</td>
+                <td>{j.status}</td>
+                <td>{j.priority}</td>
+                <td>{j.attempt_count}</td>
+                <td>{clock(j.run_at)}</td>
+                <td>{ago(j.created_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {jobs.length === 0 && !error && <p className="dim">no jobs match</p>}
     </>
   );

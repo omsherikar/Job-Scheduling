@@ -46,10 +46,11 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 
 	var fenced atomic.Bool
 	var progress atomic.Pointer[json.RawMessage]
+	var logs logbuf
 	extDone := make(chan struct{})
 	go func() {
 		defer close(extDone)
-		leaseLoop(jobCtx, pool, cfg, c, &fenced, &progress, cancelJob)
+		leaseLoop(jobCtx, pool, cfg, c, &fenced, &progress, &logs, exec, cancelJob)
 	}()
 
 	herr := call(jobCtx, h, Job{
@@ -66,10 +67,14 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 			raw := json.RawMessage(b)
 			progress.Store(&raw)
 		},
+		Log: func(level, message string) {
+			logs.add(level, message)
+		},
 	})
 
 	cancelJob()
 	<-extDone
+	writeLogs(pool, exec, logs.take())
 
 	if fenced.Load() {
 		probe(pool, cfg, c, exec)
@@ -95,7 +100,7 @@ func call(ctx context.Context, h Handler, j Job) (err error) {
 	return h(ctx, j)
 }
 
-func leaseLoop(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed, fenced *atomic.Bool, progress *atomic.Pointer[json.RawMessage], cancelJob context.CancelFunc) {
+func leaseLoop(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed, fenced *atomic.Bool, progress *atomic.Pointer[json.RawMessage], logs *logbuf, exec jobs.Execution, cancelJob context.CancelFunc) {
 	t := time.NewTicker(cfg.Lease / 3)
 	defer t.Stop()
 	for {
@@ -107,6 +112,8 @@ func leaseLoop(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claim
 			if v := progress.Load(); v != nil {
 				latest = *v
 			}
+			writeLogs(pool, exec, logs.take())
+
 			ok, err := extend(ctx, pool, cfg, c, latest)
 			if err != nil {
 				if ctx.Err() != nil {

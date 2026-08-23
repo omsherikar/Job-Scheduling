@@ -48,7 +48,11 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
 
   const load = async () => {
     try {
-      const res = await get<{ job: Job; executions: Execution[]; lease?: Lease }>(`/jobs/${id}`);
+      const res = await get<{
+        job: Job;
+        executions: Execution[];
+        lease?: Lease;
+      }>(`/jobs/${id}`);
       setJob(res.job);
       setExecs(res.executions);
       setLease(res.lease ?? null);
@@ -88,7 +92,10 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
         <button disabled={terminal} onClick={() => act("cancel")}>
           cancel
         </button>
-        <button disabled={job.status !== "retry_wait" && job.status !== "scheduled"} onClick={() => act("retry")}>
+        <button
+          disabled={job.status !== "retry_wait" && job.status !== "scheduled"}
+          onClick={() => act("retry")}
+        >
           run now
         </button>
         <Link href={`/queues/${job.queue_id}`}>queue</Link>
@@ -124,34 +131,36 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
       <pre>{JSON.stringify(job.payload, null, 2)}</pre>
 
       <h2>attempts</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>attempt</th>
-            <th>gen</th>
-            <th>fence</th>
-            <th>outcome</th>
-            <th>started</th>
-            <th>duration</th>
-            <th>error</th>
-          </tr>
-        </thead>
-        <tbody>
-          {execs.map((e) => (
-            <tr key={e.id}>
-              <td>{e.attempt}</td>
-              <td>{e.replay_generation}</td>
-              <td>{e.fence}</td>
-              <td className={e.outcome === "success" ? "ok" : e.outcome ? "bad" : "dim"}>
-                {e.outcome ?? "running"}
-              </td>
-              <td>{clock(e.started_at)}</td>
-              <td>{millis(e.duration_ms)}</td>
-              <td>{e.error_message ?? "-"}</td>
+      <div className="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>attempt</th>
+              <th>gen</th>
+              <th>fence</th>
+              <th>outcome</th>
+              <th>started</th>
+              <th>duration</th>
+              <th>error</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {execs.map((e) => (
+              <tr key={e.id}>
+                <td>{e.attempt}</td>
+                <td>{e.replay_generation}</td>
+                <td>{e.fence}</td>
+                <td className={e.outcome === "success" ? "ok" : e.outcome ? "bad" : "dim"}>
+                  {e.outcome ?? "running"}
+                </td>
+                <td>{clock(e.started_at)}</td>
+                <td>{millis(e.duration_ms)}</td>
+                <td>{e.error_message ?? "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {execs.length === 0 && <p className="dim">no attempts yet</p>}
 
       {execs
@@ -159,9 +168,7 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
         .map((e) => (
           <div key={e.id}>
             <h2>logs for attempt {e.attempt}</h2>
-            <pre>
-              {e.logs.map((l) => `${clock(l.ts)} ${l.level} ${l.message}`).join("\n")}
-            </pre>
+            <pre>{e.logs.map((l) => `${clock(l.ts)} ${l.level} ${l.message}`).join("\n")}</pre>
           </div>
         ))}
     </>

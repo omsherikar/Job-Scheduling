@@ -6,6 +6,7 @@ import { get, post } from "@/lib/api";
 import { duration, millis } from "@/lib/format";
 import { QueueStats, reasons, starving } from "@/lib/health";
 import { Latency, Minute, Throughput } from "../../chart";
+import Config from "./config";
 
 export default function Queue({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -49,6 +50,7 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
 
       <div className="controls">
         <button onClick={toggle}>{stats.queue.paused ? "resume" : "pause"}</button>
+        <Config queue={stats.queue} onSaved={load} />
         <Link href={`/jobs?queue=${id}`}>jobs in this queue</Link>
       </div>
 
@@ -93,24 +95,26 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
           </span>
         </div>
       )}
-      <table>
-        <thead>
-          <tr>
-            <th>priority</th>
-            <th>ready</th>
-            <th>oldest</th>
-          </tr>
-        </thead>
-        <tbody>
-          {stats.tiers.map((t) => (
-            <tr key={t.priority}>
-              <td>{t.priority}</td>
-              <td>{t.ready}</td>
-              <td>{duration(t.oldest_ready_seconds)}</td>
+      <div className="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>priority</th>
+              <th>ready</th>
+              <th>oldest</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {stats.tiers.map((t) => (
+              <tr key={t.priority}>
+                <td>{t.priority}</td>
+                <td>{t.ready}</td>
+                <td>{duration(t.oldest_ready_seconds)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {stats.tiers.length === 0 && <p className="dim">nothing ready</p>}
 
       <h2>throughput, last hour</h2>
@@ -120,16 +124,18 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
       <Latency series={series} />
 
       <h2>jobs by status</h2>
-      <table>
-        <tbody>
-          {Object.entries(stats.status_counts).map(([status, n]) => (
-            <tr key={status}>
-              <td>{status}</td>
-              <td>{n}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="scroll">
+        <table>
+          <tbody>
+            {Object.entries(stats.status_counts).map(([status, n]) => (
+              <tr key={status}>
+                <td>{status}</td>
+                <td>{n}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }

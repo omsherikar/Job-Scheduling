@@ -22,6 +22,7 @@ type Job struct {
 	Attempt int
 	Fence   int64
 	Report  func(progress any)
+	Log     func(level, message string)
 }
 
 type Handler func(ctx context.Context, j Job) error

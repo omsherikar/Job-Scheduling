@@ -85,3 +85,23 @@ func violation(ctx context.Context, pool *pgxpool.Pool, jobID, workerID uuid.UUI
 	_, err := pool.Exec(ctx, violationSQL, jobID, workerID, held, actualFence, actualStatus)
 	return err
 }
+
+const appendLogsSQL = `
+insert into job_logs (execution_id, ts, level, message)
+select $1, fl.now(), l.level, l.message
+  from unnest($2::text[], $3::text[]) as l(level, message)`
+
+type LogLine struct {
+	Level   string
+	Message string
+}
+
+func AppendLogs(ctx context.Context, pool *pgxpool.Pool, exec uuid.UUID, lines []LogLine) error {
+	levels := make([]string, len(lines))
+	messages := make([]string, len(lines))
+	for i, l := range lines {
+		levels[i], messages[i] = l.Level, l.Message
+	}
+	_, err := pool.Exec(ctx, appendLogsSQL, exec, levels, messages)
+	return err
+}

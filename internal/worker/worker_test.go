@@ -433,3 +433,54 @@ func TestHandlerPanic(t *testing.T) {
 	<-errs
 	testdb.CheckInvariants(t, ctx, pool)
 }
+
+func TestHandlerLogs(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 4)
+	workerID := testdb.NewWorker(t, ctx, pool, projectID)
+	jobID := testdb.NewJob(t, ctx, pool, projectID, queueID, policyID)
+
+	handlers := map[string]worker.Handler{
+		"noop": func(ctx context.Context, j worker.Job) error {
+			j.Log("info", "starting")
+			j.Log("warn", "halfway")
+			return nil
+		},
+	}
+	cancel, done := run(t, pool, config(queueID, workerID, 30*time.Second), handlers)
+
+	if !waitFor(5*time.Second, func() bool {
+		return testdb.JobStatus(t, ctx, pool, jobID) == "completed"
+	}) {
+		t.Fatalf("status = %q, want completed", testdb.JobStatus(t, ctx, pool, jobID))
+	}
+	cancel()
+	<-done
+
+	rows, err := pool.Query(ctx, `select l.level, l.message from job_logs l
+		join job_executions x on x.id = l.execution_id
+		where x.job_id = $1 order by l.ts, l.id`, jobID)
+	testdb.Must(t, err)
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var level, message string
+		testdb.Must(t, rows.Scan(&level, &message))
+		got = append(got, level+" "+message)
+	}
+	testdb.Must(t, rows.Err())
+
+	want := []string{"info starting", "warn halfway"}
+	if len(got) != len(want) {
+		t.Fatalf("log lines = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

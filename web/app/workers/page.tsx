@@ -42,32 +42,34 @@ export default function Workers() {
     <>
       <h1>workers</h1>
       {error && <div className="error">{error}</div>}
-      <table>
-        <thead>
-          <tr>
-            <th>host</th>
-            <th>pid</th>
-            <th>state</th>
-            <th>leases</th>
-            <th>capacity</th>
-            <th>up</th>
-            <th>last seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          {workers.map((w) => (
-            <tr key={w.id}>
-              <td>{w.hostname}</td>
-              <td>{w.pid}</td>
-              <td className={w.state === "active" ? "ok" : "warn"}>{w.state}</td>
-              <td>{w.leases}</td>
-              <td>{w.max_concurrency}</td>
-              <td>{ago(w.started_at)}</td>
-              <td className={stale(w.last_seen_at) ? "bad" : ""}>{ago(w.last_seen_at)}</td>
+      <div className="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>host</th>
+              <th>pid</th>
+              <th>state</th>
+              <th>leases</th>
+              <th>capacity</th>
+              <th>up</th>
+              <th>last seen</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {workers.map((w) => (
+              <tr key={w.id}>
+                <td>{w.hostname}</td>
+                <td>{w.pid}</td>
+                <td className={w.state === "active" ? "ok" : "warn"}>{w.state}</td>
+                <td>{w.leases}</td>
+                <td>{w.max_concurrency}</td>
+                <td>{ago(w.started_at)}</td>
+                <td className={stale(w.last_seen_at) ? "bad" : ""}>{ago(w.last_seen_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {workers.length === 0 && !error && <p className="dim">no workers registered</p>}
     </>
   );
