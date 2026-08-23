@@ -65,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /projects/{projectId}/events", s.guard(viewer, "", "project", byPath("projectId", s.projectScope), s.listEvents))
 	mux.HandleFunc("GET /projects/{projectId}/events/stream", s.streamEvents)
 	mux.HandleFunc("GET /workers", s.guard(viewer, "", "worker", s.byProjectQuery, s.listWorkers))
+	mux.HandleFunc("GET /projects/{projectId}/queue-health", s.guard(viewer, "", "project", byPath("projectId", s.projectScope), s.projectHealth))
 	mux.HandleFunc("GET /stats/queues/{id}", s.guard(viewer, "", "queue", byPath("id", s.queueScope), s.queueStats))
 	mux.HandleFunc("GET /stats/queues/{id}/series", s.guard(viewer, "", "queue", byPath("id", s.queueScope), s.queueSeries))
 	mux.HandleFunc("GET /batches/{id}", s.guard(viewer, "", "batch", byPath("id", s.batchScope), s.getBatch))

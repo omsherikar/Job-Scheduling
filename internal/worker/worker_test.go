@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -368,4 +369,58 @@ func TestProgressOnHeartbeat(t *testing.T) {
 	if got["done"] != float64(7) {
 		t.Errorf("done = %v, want 7", got["done"])
 	}
+}
+
+func TestHandlerPanic(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 4)
+	workerID := testdb.NewWorker(t, ctx, pool, projectID)
+	boom := testdb.NewJob(t, ctx, pool, projectID, queueID, policyID)
+	fine := testdb.NewJob(t, ctx, pool, projectID, queueID, policyID)
+
+	var done sync.WaitGroup
+	done.Add(2)
+	handlers := map[string]worker.Handler{
+		"noop": func(ctx context.Context, j worker.Job) error {
+			defer done.Done()
+			if j.ID == boom {
+				panic("nil map write")
+			}
+			return nil
+		},
+	}
+
+	cfg := worker.Config{
+		QueueID:     queueID,
+		WorkerID:    workerID,
+		Concurrency: 2,
+		Lease:       30 * time.Second,
+		Drain:       200 * time.Millisecond,
+		Poll:        20 * time.Millisecond,
+	}
+	stop, errs := run(t, pool, cfg, handlers)
+	done.Wait()
+
+	if !waitFor(5*time.Second, func() bool {
+		return testdb.JobStatus(t, ctx, pool, boom) == "retry_wait" &&
+			testdb.JobStatus(t, ctx, pool, fine) == "completed"
+	}) {
+		t.Fatalf("statuses = %s, %s, want retry_wait, completed",
+			testdb.JobStatus(t, ctx, pool, boom), testdb.JobStatus(t, ctx, pool, fine))
+	}
+
+	var msg string
+	testdb.Must(t, pool.QueryRow(ctx,
+		`select error_message from job_executions where job_id = $1`, boom).Scan(&msg))
+	if !strings.Contains(msg, "handler panic") {
+		t.Errorf("error message = %q, want contains %q", msg, "handler panic")
+	}
+
+	stop()
+	<-errs
+	testdb.CheckInvariants(t, ctx, pool)
 }

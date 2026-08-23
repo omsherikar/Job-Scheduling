@@ -14,18 +14,21 @@ export type Tier = {
   ready: number;
 };
 
-export type QueueStats = {
+export type QueueHealth = {
   queue: Queue;
-  status_counts: Record<string, number>;
-  oldest_ready_seconds: number | null;
   tiers: Tier[];
   live_workers: number;
   breaker_open_until: string | null;
   rate_limited: boolean;
   saturated: boolean;
   last_hour: { completed: number; failed: number; dead_lettered: number };
-  duration_ms_p50: number | null;
   duration_ms_p95: number | null;
+};
+
+export type QueueStats = QueueHealth & {
+  status_counts: Record<string, number>;
+  oldest_ready_seconds: number | null;
+  duration_ms_p50: number | null;
 };
 
 export type Reason = {
@@ -33,7 +36,7 @@ export type Reason = {
   text: string;
 };
 
-export function reasons(s: QueueStats): Reason[] {
+export function reasons(s: QueueHealth): Reason[] {
   const out: Reason[] = [];
   const ready = s.tiers.reduce((n, t) => n + t.ready, 0);
 
@@ -69,6 +72,11 @@ export function reasons(s: QueueStats): Reason[] {
     out.push({ level: "ok", text: "no blocker found, the queue is draining" });
   }
   return out;
+}
+
+export function oldestReady(tiers: Tier[]): number | null {
+  if (tiers.length === 0) return null;
+  return Math.max(...tiers.map((t) => t.oldest_ready_seconds));
 }
 
 export function starving(tiers: Tier[]): Tier | null {

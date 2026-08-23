@@ -131,3 +131,62 @@ func TestQueueSeries(t *testing.T) {
 		t.Errorf("status for minutes=0 = %d, want 400: %s", code, body)
 	}
 }
+
+func TestProjectHealth(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "viewer")
+	base := server(t, pool)
+
+	other := testdb.NewQueue(t, ctx, pool, ten.projectID, ten.policyID, 2)
+	_, err := pool.Exec(ctx, `update queues set name = 'zulu' where id = $1`, other)
+	testdb.Must(t, err)
+
+	_, err = pool.Exec(ctx, `insert into jobs (project_id, queue_id, type, retry_policy_id, status, priority, run_at)
+		values ($1, $2, 'noop', $3, 'queued', 2, fl.now())`, ten.projectID, ten.queueID, ten.policyID)
+	testdb.Must(t, err)
+	_, err = pool.Exec(ctx, `update queues set paused = true, in_flight = max_concurrency where id = $1`, other)
+	testdb.Must(t, err)
+
+	code, _, body := do(t, base, token, "GET", "/projects/"+ten.projectID.String()+"/queue-health", nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", code, body)
+	}
+	items := asMap(t, body)["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+
+	byName := map[string]map[string]any{}
+	for _, it := range items {
+		h := it.(map[string]any)
+		byName[strField(t, h["queue"].(map[string]any), "name")] = h
+	}
+
+	zulu := byName["zulu"]
+	if zulu["saturated"] != true {
+		t.Errorf("zulu saturated = %v, want true", zulu["saturated"])
+	}
+	if q := zulu["queue"].(map[string]any); q["paused"] != true {
+		t.Errorf("zulu paused = %v, want true", q["paused"])
+	}
+
+	var withTier map[string]any
+	for _, h := range byName {
+		if len(h["tiers"].([]any)) > 0 {
+			withTier = h
+		}
+	}
+	if withTier == nil {
+		t.Fatal("queues with a tier = 0, want 1")
+	}
+	tier := withTier["tiers"].([]any)[0].(map[string]any)
+	if p := numField(t, tier, "priority"); p != 2 {
+		t.Errorf("tier priority = %d, want 2", p)
+	}
+	if numField(t, withTier, "live_workers") != 0 {
+		t.Errorf("live workers = %v, want 0", withTier["live_workers"])
+	}
+}

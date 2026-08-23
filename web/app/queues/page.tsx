@@ -4,12 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { get, project } from "@/lib/api";
 import { duration } from "@/lib/format";
-import { QueueStats, reasons } from "@/lib/health";
-
-type Queue = { id: string; name: string };
+import { QueueHealth, oldestReady, reasons } from "@/lib/health";
 
 export default function Queues() {
-  const [stats, setStats] = useState<QueueStats[]>([]);
+  const [stats, setStats] = useState<QueueHealth[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -18,11 +16,8 @@ export default function Queues() {
 
     const load = async () => {
       try {
-        const list = await get<{ items: Queue[] }>(`/projects/${p}/queues`);
-        const all = await Promise.all(
-          list.items.map((q) => get<QueueStats>(`/stats/queues/${q.id}`)),
-        );
-        setStats(all);
+        const res = await get<{ items: QueueHealth[] }>(`/projects/${p}/queue-health`);
+        setStats(res.items);
         setError("");
       } catch (err) {
         setError(err instanceof Error ? err.message : "load failed");
@@ -54,14 +49,15 @@ export default function Queues() {
         <tbody>
           {stats.map((s) => {
             const ready = s.tiers.reduce((n, t) => n + t.ready, 0);
+            const oldest = oldestReady(s.tiers);
             const worst = reasons(s)[0];
             return (
               <tr key={s.queue.id}>
                 <td>
                   <Link href={`/queues/${s.queue.id}`}>{s.queue.name}</Link>
                 </td>
-                <td className={s.oldest_ready_seconds && s.oldest_ready_seconds > 300 ? "bad" : ""}>
-                  {duration(s.oldest_ready_seconds)}
+                <td className={oldest !== null && oldest > 300 ? "bad" : ""}>
+                  {duration(oldest)}
                 </td>
                 <td>{ready}</td>
                 <td>

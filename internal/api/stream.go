@@ -17,6 +17,7 @@ const (
 	streamBatch    = 1000
 	streamPoll     = 2 * time.Second
 	streamWrite    = 10 * time.Second
+	listenRetry    = time.Second
 )
 
 type frame struct {
@@ -92,26 +93,35 @@ func (s *Server) wake() {
 
 func (s *Server) listen(ctx context.Context) {
 	for ctx.Err() == nil {
-		conn, err := s.Pool.Acquire(ctx)
-		if err != nil {
-			return
-		}
-		_, err = conn.Exec(ctx, "listen fl_events")
-		for err == nil {
-			_, err = conn.Conn().WaitForNotification(ctx)
-			if err == nil {
-				s.wake()
-			}
-		}
-		conn.Release()
-		if ctx.Err() != nil {
-			return
-		}
+		s.listenOnce(ctx)
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Second):
+		case <-time.After(listenRetry):
 		}
+	}
+}
+
+func (s *Server) listenOnce(ctx context.Context) {
+	conn, err := s.Pool.Acquire(ctx)
+	if err != nil {
+		return
+	}
+	defer func() {
+		clean, cancel := context.WithTimeout(context.Background(), listenRetry)
+		conn.Exec(clean, "unlisten fl_events")
+		cancel()
+		conn.Release()
+	}()
+
+	if _, err := conn.Exec(ctx, "listen fl_events"); err != nil {
+		return
+	}
+	for {
+		if _, err := conn.Conn().WaitForNotification(ctx); err != nil {
+			return
+		}
+		s.wake()
 	}
 }
 

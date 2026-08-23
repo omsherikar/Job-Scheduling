@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math/rand/v2"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
@@ -50,7 +52,7 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 		leaseLoop(jobCtx, pool, cfg, c, &fenced, &progress, cancelJob)
 	}()
 
-	herr := h(jobCtx, Job{
+	herr := call(jobCtx, h, Job{
 		ID:      c.ID,
 		Type:    c.Type,
 		Payload: c.Payload,
@@ -81,6 +83,16 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 		return
 	}
 	report(pool, c, exec, herr)
+}
+
+func call(ctx context.Context, h Handler, j Job) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("handler panic on job %s: %v\n%s", j.ID, r, debug.Stack())
+			err = fmt.Errorf("handler panic: %v", r)
+		}
+	}()
+	return h(ctx, j)
 }
 
 func leaseLoop(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed, fenced *atomic.Bool, progress *atomic.Pointer[json.RawMessage], cancelJob context.CancelFunc) {
