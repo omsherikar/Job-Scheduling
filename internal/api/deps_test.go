@@ -262,3 +262,39 @@ func TestBulkReplaySkipsCancelledKin(t *testing.T) {
 		t.Errorf("parent status = %q, want dead_letter", s)
 	}
 }
+
+func TestJobKin(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "member")
+	base := server(t, pool)
+
+	parent, _ := submit(t, base, token, ten.queueID, "build")
+	child, _ := submit(t, base, token, ten.queueID, "deploy", parent.String())
+
+	code, _, raw := do(t, base, token, "GET", "/jobs/"+child.String(), nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", code, raw)
+	}
+	parents := asMap(t, raw)["parents"].([]any)
+	if len(parents) != 1 {
+		t.Fatalf("parents = %d, want 1", len(parents))
+	}
+	if got := strField(t, parents[0].(map[string]any), "type"); got != "build" {
+		t.Errorf("parent type = %q, want build", got)
+	}
+
+	code, _, raw = do(t, base, token, "GET", "/jobs/"+parent.String(), nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", code, raw)
+	}
+	children := asMap(t, raw)["children"].([]any)
+	if len(children) != 1 {
+		t.Fatalf("children = %d, want 1", len(children))
+	}
+	if got := strField(t, children[0].(map[string]any), "status"); got != "scheduled" {
+		t.Errorf("child status = %q, want scheduled", got)
+	}
+}

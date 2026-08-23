@@ -117,6 +117,16 @@ values ($1, $2, $3, $4::jsonb, $5, coalesce($6, fl.now()), $7, $8, $9,
              then 'scheduled' else 'queued' end::job_status)
 returning id, status::text, run_at, created_at`
 
+const jobParentsSQL = `
+select j.id, j.type, j.status::text
+  from job_dependencies d join jobs j on j.id = d.parent_id
+ where d.child_id = $1 order by j.id`
+
+const jobChildrenSQL = `
+select j.id, j.type, j.status::text
+  from job_dependencies d join jobs j on j.id = d.child_id
+ where d.parent_id = $1 order by j.id`
+
 const parentsSQL = `
 select count(*) from jobs
  where id = any($1) and project_id = $2
@@ -364,6 +374,29 @@ func link(ctx context.Context, tx pgx.Tx, child uuid.UUID, parents []uuid.UUID) 
 	return nil
 }
 
+type kinView struct {
+	ID     uuid.UUID `json:"id"`
+	Type   string    `json:"type"`
+	Status string    `json:"status"`
+}
+
+func kin(ctx context.Context, tx pgx.Tx, query string, jobID uuid.UUID) ([]kinView, error) {
+	rows, err := tx.Query(ctx, query, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []kinView{}
+	for rows.Next() {
+		var k kinView
+		if err := rows.Scan(&k.ID, &k.Type, &k.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
 func loadSubmitView(ctx context.Context, tx pgx.Tx, id uuid.UUID) (submitView, error) {
 	var v submitView
 	err := tx.QueryRow(ctx, submitViewSQL, id).Scan(&v.ID, &v.QueueID, &v.Type, &v.Status, &v.Priority, &v.RunAt, &v.CreatedAt)
@@ -544,7 +577,16 @@ func (s *Server) getJob(ctx context.Context, tx pgx.Tx, r *http.Request, sc scop
 		return result{}, err
 	}
 
-	body := map[string]any{"job": j, "executions": execs}
+	parents, err := kin(ctx, tx, jobParentsSQL, j.ID)
+	if err != nil {
+		return result{}, err
+	}
+	children, err := kin(ctx, tx, jobChildrenSQL, j.ID)
+	if err != nil {
+		return result{}, err
+	}
+
+	body := map[string]any{"job": j, "executions": execs, "parents": parents, "children": children}
 	var progress json.RawMessage
 	var expires time.Time
 	err = tx.QueryRow(ctx, leaseSQL, j.ID).Scan(&progress, &expires)

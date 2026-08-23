@@ -22,6 +22,8 @@ type Job = {
 
 type Lease = { progress: unknown; expires_at: string };
 
+type Kin = { id: string; type: string; status: string };
+
 type Log = { id: number; ts: string; level: string; message: string };
 
 type Execution = {
@@ -44,6 +46,8 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
   const [job, setJob] = useState<Job | null>(null);
   const [execs, setExecs] = useState<Execution[]>([]);
   const [lease, setLease] = useState<Lease | null>(null);
+  const [parents, setParents] = useState<Kin[]>([]);
+  const [children, setChildren] = useState<Kin[]>([]);
   const [error, setError] = useState("");
 
   const load = async () => {
@@ -52,10 +56,14 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
         job: Job;
         executions: Execution[];
         lease?: Lease;
+        parents?: Kin[];
+        children?: Kin[];
       }>(`/jobs/${id}`);
       setJob(res.job);
       setExecs(res.executions);
       setLease(res.lease ?? null);
+      setParents(res.parents ?? []);
+      setChildren(res.children ?? []);
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "load failed");
@@ -80,7 +88,7 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
     }
   };
 
-  const terminal = ["completed", "dead_letter", "cancelled"].includes(job.status);
+  const terminal = done(job.status);
 
   return (
     <>
@@ -124,6 +132,28 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
         <>
           <h2>progress, lease expires {clock(lease.expires_at)}</h2>
           <pre>{JSON.stringify(lease.progress, null, 2)}</pre>
+        </>
+      )}
+
+      {parents.length > 0 && (
+        <>
+          <h2>waiting on</h2>
+          {job.status === "scheduled" && (
+            <div className="reason">
+              <span className="bad">
+                {parents.filter((p) => !done(p.status)).length} of {parents.length} parents have
+                not finished
+              </span>
+            </div>
+          )}
+          <KinTable rows={parents} />
+        </>
+      )}
+
+      {children.length > 0 && (
+        <>
+          <h2>blocks</h2>
+          <KinTable rows={children} />
         </>
       )}
 
@@ -172,5 +202,38 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
           </div>
         ))}
     </>
+  );
+}
+
+function done(status: string) {
+  return status === "completed" || status === "cancelled" || status === "dead_letter";
+}
+
+function KinTable({ rows }: { rows: Kin[] }) {
+  return (
+    <div className="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>id</th>
+            <th>type</th>
+            <th>status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((k) => (
+            <tr key={k.id}>
+              <td>
+                <Link href={`/jobs/${k.id}`}>{k.id.slice(0, 8)}</Link>
+              </td>
+              <td>{k.type}</td>
+              <td className={k.status === "completed" ? "ok" : done(k.status) ? "bad" : "dim"}>
+                {k.status}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
