@@ -64,12 +64,19 @@ func (s *Server) none(ctx context.Context, tx pgx.Tx, r *http.Request, uid uuid.
 
 const sessionSQL = `select user_id from sessions where id = $1 and revoked_at is null and expires_at > fl.now()`
 
+const tokenProtocol = "fl.token."
+
 func bearer(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		return strings.TrimSpace(h[len("Bearer "):])
 	}
 	if c, err := r.Cookie("fl_session"); err == nil {
 		return c.Value
+	}
+	for _, p := range subprotocols(r) {
+		if t, ok := strings.CutPrefix(p, tokenProtocol); ok {
+			return t
+		}
 	}
 	return ""
 }

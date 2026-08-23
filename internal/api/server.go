@@ -2,12 +2,19 @@ package api
 
 import (
 	"net/http"
+	"sync"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Server struct {
 	Pool *pgxpool.Pool
+
+	mu         sync.Mutex
+	streams    map[uuid.UUID]int
+	wakers     map[chan struct{}]struct{}
+	stopListen func()
 }
 
 func (s *Server) Handler() http.Handler {
@@ -55,6 +62,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /dlq/{jobId}/replay", s.guard(member, "job.replay", "job", byPath("jobId", s.jobScope), s.replayJob))
 
 	mux.HandleFunc("GET /projects/{projectId}/events", s.guard(viewer, "", "project", byPath("projectId", s.projectScope), s.listEvents))
+	mux.HandleFunc("GET /projects/{projectId}/events/stream", s.streamEvents)
 	mux.HandleFunc("GET /workers", s.guard(viewer, "", "worker", s.byProjectQuery, s.listWorkers))
 	mux.HandleFunc("GET /stats/queues/{id}", s.guard(viewer, "", "queue", byPath("id", s.queueScope), s.queueStats))
 	mux.HandleFunc("GET /batches/{id}", s.guard(viewer, "", "batch", byPath("id", s.batchScope), s.getBatch))

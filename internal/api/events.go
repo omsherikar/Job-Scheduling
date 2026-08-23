@@ -50,6 +50,19 @@ func afterID(r *http.Request) (int64, error) {
 	return n, nil
 }
 
+func scanEvents(rows pgx.Rows) ([]event, error) {
+	defer rows.Close()
+	out := []event{}
+	for rows.Next() {
+		var e event
+		if err := rows.Scan(&e.ID, &e.Topic, &e.EntityID, &e.Payload, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 func (s *Server) listEvents(ctx context.Context, tx pgx.Tx, r *http.Request, sc scope) (result, error) {
 	after, err := afterID(r)
 	if err != nil {
@@ -69,16 +82,8 @@ func (s *Server) listEvents(ctx context.Context, tx pgx.Tx, r *http.Request, sc 
 	if err != nil {
 		return result{}, err
 	}
-	defer rows.Close()
-	out := []event{}
-	for rows.Next() {
-		var e event
-		if err := rows.Scan(&e.ID, &e.Topic, &e.EntityID, &e.Payload, &e.CreatedAt); err != nil {
-			return result{}, err
-		}
-		out = append(out, e)
-	}
-	if err := rows.Err(); err != nil {
+	out, err := scanEvents(rows)
+	if err != nil {
 		return result{}, err
 	}
 
