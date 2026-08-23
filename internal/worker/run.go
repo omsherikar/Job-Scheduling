@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"math/rand/v2"
@@ -42,10 +43,11 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 	defer cancelJob()
 
 	var fenced atomic.Bool
+	var progress atomic.Pointer[json.RawMessage]
 	extDone := make(chan struct{})
 	go func() {
 		defer close(extDone)
-		leaseLoop(jobCtx, pool, cfg, c, &fenced, cancelJob)
+		leaseLoop(jobCtx, pool, cfg, c, &fenced, &progress, cancelJob)
 	}()
 
 	herr := h(jobCtx, Job{
@@ -54,6 +56,14 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 		Payload: c.Payload,
 		Attempt: exec.Attempt,
 		Fence:   c.Fence,
+		Report: func(v any) {
+			b, err := json.Marshal(v)
+			if err != nil {
+				return
+			}
+			raw := json.RawMessage(b)
+			progress.Store(&raw)
+		},
 	})
 
 	cancelJob()
@@ -73,7 +83,7 @@ func runOne(stopCtx, runCtx context.Context, pool *pgxpool.Pool, cfg Config, han
 	report(pool, c, exec, herr)
 }
 
-func leaseLoop(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed, fenced *atomic.Bool, cancelJob context.CancelFunc) {
+func leaseLoop(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed, fenced *atomic.Bool, progress *atomic.Pointer[json.RawMessage], cancelJob context.CancelFunc) {
 	t := time.NewTicker(cfg.Lease / 3)
 	defer t.Stop()
 	for {
@@ -81,7 +91,11 @@ func leaseLoop(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claim
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			ok, err := extend(ctx, pool, cfg, c)
+			var latest json.RawMessage
+			if v := progress.Load(); v != nil {
+				latest = *v
+			}
+			ok, err := extend(ctx, pool, cfg, c, latest)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
@@ -112,11 +126,11 @@ func startJob(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claime
 	return exec, err
 }
 
-func extend(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed) (bool, error) {
+func extend(ctx context.Context, pool *pgxpool.Pool, cfg Config, c jobs.Claimed, progress json.RawMessage) (bool, error) {
 	var ok bool
 	var err error
 	for i := 0; i < reportAttempts; i++ {
-		ok, err = jobs.ExtendLease(ctx, pool, c.ID, c.Fence, cfg.Lease)
+		ok, err = jobs.ExtendLease(ctx, pool, c.ID, c.Fence, cfg.Lease, progress)
 		if err == nil || !transient(err) {
 			return ok, err
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -48,6 +49,50 @@ type tier struct {
 	Priority      int `json:"priority"`
 	OldestSeconds int `json:"oldest_ready_seconds"`
 	Ready         int `json:"ready"`
+}
+
+const seriesSQL = `
+select minute, completed, failed, dead_lettered, duration_ms_p50, duration_ms_p95
+from queue_stats_minute
+where queue_id = $1 and minute >= date_trunc('minute', fl.now()) - make_interval(mins => $2)
+order by minute`
+
+type minuteView struct {
+	Minute       time.Time `json:"minute"`
+	Completed    int       `json:"completed"`
+	Failed       int       `json:"failed"`
+	DeadLettered int       `json:"dead_lettered"`
+	P50          *int      `json:"duration_ms_p50"`
+	P95          *int      `json:"duration_ms_p95"`
+}
+
+func (s *Server) queueSeries(ctx context.Context, tx pgx.Tx, r *http.Request, sc scope) (result, error) {
+	minutes := 60
+	if v := r.URL.Query().Get("minutes"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 || n > 1440 {
+			return result{}, badRequest("invalid minutes")
+		}
+		minutes = n
+	}
+
+	rows, err := tx.Query(ctx, seriesSQL, sc.entityID, minutes)
+	if err != nil {
+		return result{}, err
+	}
+	defer rows.Close()
+	out := []minuteView{}
+	for rows.Next() {
+		var m minuteView
+		if err := rows.Scan(&m.Minute, &m.Completed, &m.Failed, &m.DeadLettered, &m.P50, &m.P95); err != nil {
+			return result{}, err
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return result{}, err
+	}
+	return result{body: map[string]any{"items": out}}, nil
 }
 
 func (s *Server) queueStats(ctx context.Context, tx pgx.Tx, r *http.Request, sc scope) (result, error) {

@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -311,4 +312,60 @@ func TestCancelClosesExecution(t *testing.T) {
 	}
 
 	testdb.CheckInvariants(t, ctx, pool)
+}
+
+func TestProgressOnHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 4)
+	workerID := testdb.NewWorker(t, ctx, pool, projectID)
+	jobID := testdb.NewJob(t, ctx, pool, projectID, queueID, policyID)
+
+	reported := make(chan struct{})
+	handlers := map[string]worker.Handler{
+		"noop": func(ctx context.Context, j worker.Job) error {
+			j.Report(map[string]any{"done": 7, "total": 10})
+			close(reported)
+			<-ctx.Done()
+			return nil
+		},
+	}
+
+	cfg := worker.Config{
+		QueueID:     queueID,
+		WorkerID:    workerID,
+		Concurrency: 1,
+		Lease:       300 * time.Millisecond,
+		Drain:       200 * time.Millisecond,
+		Poll:        20 * time.Millisecond,
+	}
+
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		worker.Run(runCtx, pool, cfg, handlers)
+		close(done)
+	}()
+
+	<-reported
+
+	var progress []byte
+	waitFor(5*time.Second, func() bool {
+		err := pool.QueryRow(ctx, `select progress from job_leases where job_id = $1`, jobID).Scan(&progress)
+		return err == nil && progress != nil
+	})
+	stop()
+	<-done
+
+	if progress == nil {
+		t.Fatal("lease progress is null, want the reported value")
+	}
+	var got map[string]any
+	testdb.Must(t, json.Unmarshal(progress, &got))
+	if got["done"] != float64(7) {
+		t.Errorf("done = %v, want 7", got["done"])
+	}
 }

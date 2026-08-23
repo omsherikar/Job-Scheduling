@@ -98,3 +98,36 @@ func TestQueueHealthStopped(t *testing.T) {
 		t.Error("breaker_open_until = null, want a timestamp")
 	}
 }
+
+func TestQueueSeries(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "viewer")
+	base := server(t, pool)
+
+	_, err := pool.Exec(ctx, `insert into queue_stats_minute
+		(queue_id, minute, completed, failed, duration_ms_p95)
+		values ($1, date_trunc('minute', fl.now()) - interval '2 minutes', 5, 1, 900),
+		       ($1, date_trunc('minute', fl.now()) - interval '1 minute', 7, 0, 800),
+		       ($1, date_trunc('minute', fl.now()) - interval '3 hours', 99, 0, 100)`, ten.queueID)
+	testdb.Must(t, err)
+
+	code, _, body := do(t, base, token, "GET", "/stats/queues/"+ten.queueID.String()+"/series", nil, nil)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", code, body)
+	}
+	items := asMap(t, body)["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+	if n := numField(t, items[0].(map[string]any), "completed"); n != 5 {
+		t.Errorf("first minute completed = %d, want 5", n)
+	}
+
+	code, _, body = do(t, base, token, "GET", "/stats/queues/"+ten.queueID.String()+"/series?minutes=0", nil, nil)
+	if code != http.StatusBadRequest {
+		t.Errorf("status for minutes=0 = %d, want 400: %s", code, body)
+	}
+}

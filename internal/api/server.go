@@ -9,7 +9,8 @@ import (
 )
 
 type Server struct {
-	Pool *pgxpool.Pool
+	Pool           *pgxpool.Pool
+	AllowedOrigins []string
 
 	mu         sync.Mutex
 	streams    map[uuid.UUID]int
@@ -65,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /projects/{projectId}/events/stream", s.streamEvents)
 	mux.HandleFunc("GET /workers", s.guard(viewer, "", "worker", s.byProjectQuery, s.listWorkers))
 	mux.HandleFunc("GET /stats/queues/{id}", s.guard(viewer, "", "queue", byPath("id", s.queueScope), s.queueStats))
+	mux.HandleFunc("GET /stats/queues/{id}/series", s.guard(viewer, "", "queue", byPath("id", s.queueScope), s.queueSeries))
 	mux.HandleFunc("GET /batches/{id}", s.guard(viewer, "", "batch", byPath("id", s.batchScope), s.getBatch))
 
 	return s.middleware(mux)

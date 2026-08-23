@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/shrutu0929/fenceline/internal/api"
 	"github.com/shrutu0929/fenceline/internal/testdb"
 )
 
@@ -247,5 +249,61 @@ func TestStreamPerUserCap(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429", resp.StatusCode)
+	}
+}
+
+func TestStreamOriginRejected(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "viewer")
+	base := server(t, pool)
+
+	url := "ws" + strings.TrimPrefix(base, "http") + "/projects/" + ten.projectID.String() + "/events/stream"
+	_, resp, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+		HTTPHeader: http.Header{
+			"Authorization": {"Bearer " + token},
+			"Origin":        {"http://evil.test"},
+		},
+	})
+	if err == nil {
+		t.Fatal("cross origin dial succeeded, want rejection")
+	}
+	if resp == nil {
+		t.Fatal("no response, want 403")
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestStreamOriginAllowed(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+	testdb.SetNow(t, pool, testdb.Epoch)
+	ten := setup(t, ctx, pool)
+	_, token := actor(t, ctx, pool, ten.orgID, "viewer")
+
+	srv := httptest.NewServer((&api.Server{
+		Pool:           pool,
+		AllowedOrigins: []string{"dash.test"},
+	}).Handler())
+	defer srv.Close()
+
+	emitN(t, ctx, pool, ten.projectID, "a", 1)
+
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/projects/" + ten.projectID.String() + "/events/stream"
+	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+		HTTPHeader: http.Header{
+			"Authorization": {"Bearer " + token},
+			"Origin":        {"http://dash.test"},
+		},
+	})
+	testdb.Must(t, err)
+	defer conn.CloseNow()
+
+	if f := read(t, ctx, conn); len(f.Events) != 1 {
+		t.Fatalf("events = %d, want 1", len(f.Events))
 	}
 }

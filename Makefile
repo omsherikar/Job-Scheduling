@@ -1,4 +1,4 @@
-.PHONY: db-up db-down migrate test build fmt vet check
+.PHONY: db-up db-down migrate test build fmt vet check web web-build
 
 db-up:
 	docker compose up -d postgres
@@ -26,5 +26,11 @@ vet:
 
 test:
 	go test -race ./...
+
+web:
+	cd web && npm install && npm run dev
+
+web-build:
+	cd web && npm install && npm run build
 
 check: fmt vet build test

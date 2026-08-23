@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 const extendSQL = `
 update job_leases l set
   expires_at = least(fl.now() + make_interval(secs => $3), j.deadline_at),
+  progress = coalesce($4::jsonb, l.progress),
   updated_at = fl.now()
 from jobs j
 where l.job_id = $1 and j.id = $1 and j.fence = $2 and j.status = 'running'`
@@ -26,8 +28,12 @@ insert into job_fence_violations
   (job_id, worker_id, attempted, held_fence, actual_fence, actual_status)
 values ($1, $2, 'report', $3, $4, $5::job_status)`
 
-func ExtendLease(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence int64, lease time.Duration) (bool, error) {
-	tag, err := pool.Exec(ctx, extendSQL, jobID, fence, lease.Seconds())
+func ExtendLease(ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID, fence int64, lease time.Duration, progress json.RawMessage) (bool, error) {
+	var p any
+	if len(progress) > 0 {
+		p = string(progress)
+	}
+	tag, err := pool.Exec(ctx, extendSQL, jobID, fence, lease.Seconds(), p)
 	if err != nil {
 		return false, err
 	}

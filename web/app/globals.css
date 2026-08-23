@@ -1,0 +1,234 @@
+:root {
+  --bg: #0d1117;
+  --panel: #151b23;
+  --line: #262d36;
+  --text: #d8dee6;
+  --dim: #7d8894;
+  --accent: #4a9eff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+nav .name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+nav .spacer {
+  flex: 1;
+}
+
+main {
+  padding: 18px;
+  max-width: 1400px;
+}
+
+h1 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 22px 0 8px;
+  color: var(--dim);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--dim);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+tr:hover td {
+  background: var(--panel);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+}
+
+.card .label {
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.card .value {
+  font-size: 20px;
+  margin-top: 4px;
+}
+
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.warn {
+  color: var(--warn);
+}
+
+.bad {
+  color: var(--bad);
+}
+
+.dim {
+  color: var(--dim);
+}
+
+.reason {
+  border-left: 2px solid var(--bad);
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  background: var(--panel);
+}
+
+.reason.clear {
+  border-left-color: var(--ok);
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 5px 9px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.error {
+  border-left: 2px solid var(--bad);
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  background: var(--panel);
+}
+
+pre {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 10px;
+  overflow-x: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 90px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bars .bar {
+  flex: 1;
+  min-width: 2px;
+  background: var(--accent);
+}
+
+.login {
+  max-width: 320px;
+  margin: 80px auto;
+}
+
+.login label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.login input {
+  width: 100%;
+  margin-top: 4px;
+}

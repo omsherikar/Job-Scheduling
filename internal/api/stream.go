@@ -158,7 +158,8 @@ func (s *Server) streamEvents(w http.ResponseWriter, r *http.Request) {
 	defer done()
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols: subprotocols(r),
+		Subprotocols:   subprotocols(r),
+		OriginPatterns: s.AllowedOrigins,
 	})
 	if err != nil {
 		return

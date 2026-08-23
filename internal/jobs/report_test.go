@@ -186,7 +186,7 @@ func TestExtendLeaseAfterMove(t *testing.T) {
 	exec, err := jobs.Start(ctx, pool, jobID, c.Fence, w)
 	testdb.Must(t, err)
 
-	ok, err := jobs.ExtendLease(ctx, pool, jobID, c.Fence, 30*time.Second)
+	ok, err := jobs.ExtendLease(ctx, pool, jobID, c.Fence, 30*time.Second, nil)
 	testdb.Must(t, err)
 	if !ok {
 		t.Fatal("extend on running job = false, want true")
@@ -194,7 +194,7 @@ func TestExtendLeaseAfterMove(t *testing.T) {
 
 	testdb.Must(t, jobs.Complete(ctx, pool, jobID, c.Fence, exec.ID))
 
-	ok, err = jobs.ExtendLease(ctx, pool, jobID, c.Fence, 30*time.Second)
+	ok, err = jobs.ExtendLease(ctx, pool, jobID, c.Fence, 30*time.Second, nil)
 	testdb.Must(t, err)
 	if ok {
 		t.Error("extend after completion = true, want false")

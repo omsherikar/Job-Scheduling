@@ -21,6 +21,7 @@ type Job struct {
 	Payload []byte
 	Attempt int
 	Fence   int64
+	Report  func(progress any)
 }
 
 type Handler func(ctx context.Context, j Job) error

@@ -116,6 +116,8 @@ returning id, status::text, run_at, created_at`
 
 const submitViewSQL = `select id, queue_id, type, status::text, priority, run_at, created_at from jobs where id = $1`
 
+const leaseSQL = `select progress, expires_at from job_leases where job_id = $1`
+
 const findIdemSQL = `select job_id, fingerprint, expires_at <= fl.now() from idempotency_keys where queue_id = $1 and key = $2`
 const deleteIdemSQL = `delete from idempotency_keys where queue_id = $1 and key = $2`
 const insertIdemSQL = `insert into idempotency_keys (queue_id, key, job_id, fingerprint) values ($1, $2, $3, $4)`
@@ -461,7 +463,17 @@ func (s *Server) getJob(ctx context.Context, tx pgx.Tx, r *http.Request, sc scop
 	if err != nil {
 		return result{}, err
 	}
-	return result{body: map[string]any{"job": j, "executions": execs}}, nil
+
+	body := map[string]any{"job": j, "executions": execs}
+	var progress json.RawMessage
+	var expires time.Time
+	err = tx.QueryRow(ctx, leaseSQL, j.ID).Scan(&progress, &expires)
+	if err == nil {
+		body["lease"] = map[string]any{"progress": progress, "expires_at": expires}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return result{}, err
+	}
+	return result{body: body}, nil
 }
 
 func loadExecutions(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) ([]execView, error) {

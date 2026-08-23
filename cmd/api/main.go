@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,6 +39,9 @@ func main() {
 	defer pool.Close()
 
 	srv := &api.Server{Pool: pool}
+	if origins := os.Getenv("API_ALLOWED_ORIGINS"); origins != "" {
+		srv.AllowedOrigins = strings.Split(origins, ",")
+	}
 	httpServer := &http.Server{
 		Addr:              addr,
 		Handler:           srv.Handler(),
