@@ -13,6 +13,7 @@ Go services and a Next.js dashboard, with Postgres as the only coordination poin
 
 | | |
 |---|---|
+| [RUNBOOK.md](RUNBOOK.md) | a walkthrough from empty database to a job running, with expected output |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | the processes, the claim path, how a lost worker is handled |
 | [API.md](API.md) | all fifty endpoints, with roles, payloads and error semantics |
 | [SCHEMA.md](SCHEMA.md) | the tables, the keys, and why the shape is what it is |
