@@ -2,12 +2,11 @@
 
 A job scheduler built on Postgres. Every state change is guarded by a fencing token, so a
 worker that was declared dead cannot report on a job that has moved on without it. Claiming
-reads a partial index over ready jobs, so its cost grows far more slowly than the table
-does: fifty times the rows costs under twice the reads, measured in
-[BENCHMARKS.md](BENCHMARKS.md). Jobs that reach a terminal state move to cold storage,
-which keeps the working set small as history grows.
+reads a partial index that holds only the jobs eligible to run, so it does not scan the
+table. Jobs that reach a terminal state move to cold tables.
 
 Go services and a Next.js dashboard, with Postgres as the only coordination point.
+[BENCHMARKS.md](BENCHMARKS.md) has what that costs, measured.
 
 ## What it does
 
@@ -51,7 +50,7 @@ Go services and a Next.js dashboard, with Postgres as the only coordination poin
 
 | | |
 |---|---|
-| worker library | `worker.Run` takes your handlers; the binary carries three for smoke tests |
+| worker library | `worker.Run` takes your handlers and runs the claim, execute, report loop |
 | capability routing | a worker claims only the job types it announced, so new types can be enqueued early |
 | lease extension | long jobs keep their lease and report progress on the heartbeat |
 | graceful drain | SIGTERM finishes what is running and releases the rest |
@@ -79,25 +78,18 @@ Go services and a Next.js dashboard, with Postgres as the only coordination poin
 | tenancy | users, organizations, projects, queues, checked by join on every request |
 | roles | owner, admin, member and viewer, held per organization |
 
-## Optional extras, and where each one is
-
-The eight features that were specified as optional. Each is in the tables above; this
-is where to read about it.
+## Bonus features
 
 | | |
 |---|---|
-| workflow dependencies | the `dependent` row, and [API.md](API.md) for the cancel and replay rules |
-| rate limiting | the `rate limiting` row, applied in `fl.queue_admit` |
-| distributed locking | the `advisory locks` row, and [ARCHITECTURE.md](ARCHITECTURE.md) for the lock order |
-| queue sharding | the `shards` row, with the throughput measurements in [BENCHMARKS.md](BENCHMARKS.md) |
-| event-driven execution | the `wake on notify` row, and the enqueue to start figures in [BENCHMARKS.md](BENCHMARKS.md) |
-| websocket live updates | the `event stream` row, and [API.md](API.md) for subprotocol auth and gap detection |
-| role-based access control | the `roles` row, and [API.md](API.md) for what each role may do |
-| ai failure summaries | the `failure summaries` row, and [API.md](API.md) for the `state` values |
-
-The AI summary is the only one that calls anything outside Postgres. Leave
-`ANTHROPIC_API_KEY` unset and the grouped failure table is still served, with `state`
-reporting `unavailable`.
+| workflow dependencies | [API.md](API.md) for the cancel and replay rules |
+| rate limiting | a token bucket in `fl.queue_admit`, at the claim gate |
+| distributed locking | [ARCHITECTURE.md](ARCHITECTURE.md) for the lock order and where each lock is taken |
+| queue sharding | [BENCHMARKS.md](BENCHMARKS.md) for the throughput against shard count |
+| event-driven execution | [BENCHMARKS.md](BENCHMARKS.md) for enqueue to start with and without notify |
+| websocket live updates | [API.md](API.md) for subprotocol auth and gap detection |
+| role-based access control | [API.md](API.md) for what each role may do |
+| ai failure summaries | the only one that calls anything outside Postgres, see Configuration |
 
 ## The rest of the documentation
 
@@ -114,7 +106,8 @@ reporting `unavailable`.
 
 ## What you need
 
-Docker, Go 1.25, and Node 20 if you want the dashboard.
+Docker and Go 1.25, plus Node 22 if you want the dashboard. Those are the versions CI
+builds against.
 
 ## Setting it up
 
@@ -127,11 +120,30 @@ make check
 ```
 
 `make db-up` waits for the container to accept connections, `make migrate` applies every
-migration in order, and `make check` runs format, vet, build and the test suite. If all three
-pass, the install is good.
+migration in order, and `make check` runs format, vet, build and the test suite.
 
-Migrations are embedded in the binaries and take an advisory lock, so running `make migrate`
-twice, or from two machines at once, is safe.
+Migrations are embedded in the binaries and take an advisory lock, so two of them running at
+once is safe.
+
+## Configuration
+
+[.env.example](.env.example) holds the full set. Only `DATABASE_URL` is always required.
+
+| | |
+|---|---|
+| `DATABASE_URL` | every binary |
+| `TEST_DATABASE_URL` | the test suite, pointed at `postgres` so it can create databases |
+| `API_PORT`, `API_ADDR` | where the api listens, 3001 if unset |
+| `API_ALLOWED_ORIGINS` | comma separated, for websockets from another origin |
+| `WORKER_QUEUE` | the queue id a worker claims from, required |
+| `WORKER_CONCURRENCY` | how many jobs one worker runs at once, 4 if unset |
+| `API_URL` | where the dashboard proxies `/api`, server side, 3001 if unset |
+| `NEXT_PUBLIC_API_URL` | where the browser opens the websocket, 3001 if unset |
+| `ANTHROPIC_API_KEY` | the scheduler writes failure summaries only when this is set |
+
+Without `ANTHROPIC_API_KEY` every other scheduler sweep runs as usual, the summary sweep does
+nothing, and `GET /queues/{id}/failure-summary` still returns the grouped failures with `state`
+reporting `unavailable`.
 
 ## The binaries
 
@@ -153,7 +165,9 @@ go run ./cmd/migrate
 | `archiver` | hot to cold, idempotency pruning |
 | `migrate` | applies migrations, safe to run twice |
 
-A worker claims from one queue, so `WORKER_QUEUE` is required and must be a queue id:
+A worker claims from one queue, so `WORKER_QUEUE` is required and must be the id of a
+queue that already exists. Create one over the api first; [RUNBOOK.md](RUNBOOK.md) walks
+through it.
 
 ```
 DATABASE_URL=... WORKER_QUEUE=<queue id> WORKER_CONCURRENCY=4 go run ./cmd/worker
@@ -163,21 +177,9 @@ The binary ships three handlers for smoke tests and benchmarks: `noop` returns i
 `sleep` waits for the milliseconds in its payload, and `fail` always errors. Real handlers are
 yours to write against `worker.Run`, which [ARCHITECTURE.md](ARCHITECTURE.md) covers.
 
-## Configuration
-
-[.env.example](.env.example) holds the full set. Only `DATABASE_URL` is always required.
-
-| | |
-|---|---|
-| `DATABASE_URL` | every binary |
-| `TEST_DATABASE_URL` | the test suite, pointed at `postgres` so it can create databases |
-| `API_PORT`, `API_ADDR` | where the api listens, 3001 if unset |
-| `API_ALLOWED_ORIGINS` | comma separated, for websockets from another origin |
-| `WORKER_QUEUE` | the queue id a worker claims from, required |
-| `WORKER_CONCURRENCY` | how many jobs one worker runs at once, 4 if unset |
-| `ANTHROPIC_API_KEY` | the scheduler writes failure summaries only when this is set |
-
-Without `ANTHROPIC_API_KEY` every other sweep runs as usual and the summary sweep is a no-op.
+`go run` is fine for one process in the foreground. If you are backgrounding several,
+build them instead: `go run` executes a binary named `exe/api`, so `pkill -f cmd/api`
+will not find it and you end up with a stale server on the port.
 
 ## The dashboard
 
@@ -185,10 +187,10 @@ Without `ANTHROPIC_API_KEY` every other sweep runs as usual and the summary swee
 cd web && npm install && npm run dev
 ```
 
-It proxies `/api` to `API_URL`, so http calls are same origin. The event stream connects
-straight to the API, which means two variables when the dashboard is not served from the API's
-own origin: `NEXT_PUBLIC_API_URL` on the dashboard, and `API_ALLOWED_ORIGINS` on the API, a
-comma separated list. Without the second, only same origin streams are accepted.
+Http calls go through a Next rewrite, so they are same origin and need nothing configured.
+The websocket cannot, since it connects straight to the api. Serving the dashboard from a
+different origin therefore needs `NEXT_PUBLIC_API_URL` set on the dashboard and that origin
+listed in `API_ALLOWED_ORIGINS` on the api, or the connection is refused.
 
 ## Regenerating the diagrams
 
@@ -197,8 +199,7 @@ make diagram
 ```
 
 Reads a migrated database and rewrites [DIAGRAMS.md](DIAGRAMS.md): the job state machine out of
-`job_transitions`, the entities out of the catalog. Neither is maintained by hand, so neither
-can drift from the schema it describes.
+`job_transitions`, the entities out of the catalog. Both are generated, not hand edited.
 
 ## Running the tests
 
