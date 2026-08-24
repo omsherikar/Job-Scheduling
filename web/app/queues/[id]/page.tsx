@@ -76,6 +76,9 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
           <div className="label">in flight</div>
           <div className="value">
             {stats.queue.in_flight}/{stats.queue.max_concurrency}
+            {stats.queue.shards > 1 && (
+              <span className="dim"> over {stats.queue.shards} shards</span>
+            )}
           </div>
         </div>
         <div className="card">

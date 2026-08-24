@@ -32,7 +32,11 @@ join worker_queues wq on wq.worker_id = w.id
 where wq.queue_id = $1 and w.state = 'active'
   and w.last_seen_at > fl.now() - make_interval(secs => $2)`
 
-const breakerUntilSQL = `select breaker_open_until, rl_limit_per_sec > 0 and rl_tokens < 1 from queues where id = $1`
+const breakerUntilSQL = `
+select q.breaker_open_until,
+       q.rl_limit_per_sec > 0
+         and coalesce((select max(s.rl_tokens) from queue_shards s where s.queue_id = q.id), 0) < 1
+from queues q where q.id = $1`
 
 const throughputSQL = `
 select coalesce(sum(completed), 0), coalesce(sum(failed), 0), coalesce(sum(dead_lettered), 0)

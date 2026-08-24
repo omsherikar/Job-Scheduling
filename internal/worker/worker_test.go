@@ -291,7 +291,7 @@ func TestCancelClosesExecution(t *testing.T) {
 	testdb.Must(t, err)
 	_, err = pool.Exec(ctx, `delete from job_leases where job_id = $1`, jobID)
 	testdb.Must(t, err)
-	_, err = pool.Exec(ctx, `select fl.queue_release($1, 1)`, queueID)
+	_, err = pool.Exec(ctx, `select fl.queue_release($1, 0::smallint, 1)`, queueID)
 	testdb.Must(t, err)
 
 	closed := waitFor(settleWait, func() bool {
@@ -538,7 +538,7 @@ func TestSnoozeKeepsAttempts(t *testing.T) {
 	}
 
 	var inFlight int
-	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&inFlight))
+	testdb.Must(t, pool.QueryRow(ctx, `select fl.in_flight($1)`, queueID).Scan(&inFlight))
 	if inFlight != 0 {
 		t.Errorf("in_flight = %d, want 0", inFlight)
 	}

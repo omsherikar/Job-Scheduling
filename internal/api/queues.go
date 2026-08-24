@@ -19,6 +19,7 @@ type queueView struct {
 	RetryPolicyID   uuid.UUID `json:"retry_policy_id"`
 	DefaultPriority int       `json:"default_priority"`
 	MaxConcurrency  int       `json:"max_concurrency"`
+	Shards          int       `json:"shards"`
 	InFlight        int       `json:"in_flight"`
 	MaxDepth        *int      `json:"max_depth"`
 	RateLimitPerSec float64   `json:"rl_limit_per_sec"`
@@ -31,6 +32,7 @@ type queueReq struct {
 	Name            *string  `json:"name"`
 	RetryPolicyID   *string  `json:"retry_policy_id"`
 	MaxConcurrency  *int     `json:"max_concurrency"`
+	Shards          *int     `json:"shards"`
 	MaxDepth        *int     `json:"max_depth"`
 	DefaultPriority *int     `json:"default_priority"`
 	RateLimitPerSec *float64 `json:"rl_limit_per_sec"`
@@ -42,19 +44,21 @@ const policyOwnedSQL = `select 1 from retry_policies where id = $1 and project_i
 const insertQueueSQL = `
 insert into queues
   (project_id, name, retry_policy_id, max_concurrency, max_depth, default_priority,
-   rl_limit_per_sec, rl_burst, rl_tokens, rl_refilled_at)
-values ($1, $2, $3, $4, $5, $6, $7::numeric, $8::numeric, $8::numeric, fl.now())
-returning id, paused, in_flight, breaker_state, created_at`
+   rl_limit_per_sec, rl_burst, shards)
+values ($1, $2, $3, $4, $5, $6, $7::numeric, $8::numeric, $9)
+returning id, paused, breaker_state, created_at`
 
 const listQueuesSQL = `
 select id, project_id, name, paused, retry_policy_id, default_priority, max_concurrency,
-       in_flight, max_depth, rl_limit_per_sec::double precision, rl_burst::double precision,
+       shards, fl.in_flight(id), max_depth,
+       rl_limit_per_sec::double precision, rl_burst::double precision,
        breaker_state, created_at
 from queues where project_id = $1 order by name`
 
 const getQueueSQL = `
 select id, project_id, name, paused, retry_policy_id, default_priority, max_concurrency,
-       in_flight, max_depth, rl_limit_per_sec::double precision, rl_burst::double precision,
+       shards, fl.in_flight(id), max_depth,
+       rl_limit_per_sec::double precision, rl_burst::double precision,
        breaker_state, created_at
 from queues where id = $1`
 
@@ -66,11 +70,12 @@ update queues set
   default_priority = coalesce($5, default_priority),
   rl_limit_per_sec = coalesce($6::numeric, rl_limit_per_sec),
   rl_burst = coalesce($7::numeric, rl_burst),
-  rl_tokens = least(rl_tokens, coalesce($7::numeric, rl_burst)),
-  retry_policy_id = coalesce($8, retry_policy_id)
+  retry_policy_id = coalesce($8, retry_policy_id),
+  shards = coalesce($9, shards)
 where id = $1
 returning id, project_id, name, paused, retry_policy_id, default_priority, max_concurrency,
-          in_flight, max_depth, rl_limit_per_sec::double precision, rl_burst::double precision,
+          shards, fl.in_flight(id), max_depth,
+          rl_limit_per_sec::double precision, rl_burst::double precision,
           breaker_state, created_at`
 
 const deleteQueueSQL = `delete from queues where id = $1`
@@ -108,10 +113,11 @@ func (s *Server) createQueue(ctx context.Context, tx pgx.Tx, r *http.Request, sc
 		DefaultPriority: derefInt(req.DefaultPriority, 0),
 		RateLimitPerSec: derefFloat(req.RateLimitPerSec, 0),
 		RateBurst:       derefFloat(req.RateBurst, 0),
+		Shards:          derefInt(req.Shards, 1),
 	}
 	err = tx.QueryRow(ctx, insertQueueSQL, sc.projectID, name, policyID, q.MaxConcurrency,
-		q.MaxDepth, q.DefaultPriority, q.RateLimitPerSec, q.RateBurst).
-		Scan(&q.ID, &q.Paused, &q.InFlight, &q.BreakerState, &q.CreatedAt)
+		q.MaxDepth, q.DefaultPriority, q.RateLimitPerSec, q.RateBurst, q.Shards).
+		Scan(&q.ID, &q.Paused, &q.BreakerState, &q.CreatedAt)
 	if isUnique(err) {
 		return result{}, conflict("queue name already used in this project")
 	}
@@ -135,7 +141,7 @@ func (s *Server) assertPolicyOwned(ctx context.Context, tx pgx.Tx, policyID, pro
 
 func scanQueue(row pgx.Row, q *queueView) error {
 	return row.Scan(&q.ID, &q.ProjectID, &q.Name, &q.Paused, &q.RetryPolicyID, &q.DefaultPriority,
-		&q.MaxConcurrency, &q.InFlight, &q.MaxDepth, &q.RateLimitPerSec, &q.RateBurst,
+		&q.MaxConcurrency, &q.Shards, &q.InFlight, &q.MaxDepth, &q.RateLimitPerSec, &q.RateBurst,
 		&q.BreakerState, &q.CreatedAt)
 }
 
@@ -189,9 +195,13 @@ func (s *Server) updateQueue(ctx context.Context, tx pgx.Tx, r *http.Request, sc
 	}
 	var q queueView
 	err := scanQueue(tx.QueryRow(ctx, updateQueueSQL, sc.entityID, req.Name, req.MaxConcurrency,
-		req.MaxDepth, req.DefaultPriority, req.RateLimitPerSec, req.RateBurst, policyID), &q)
+		req.MaxDepth, req.DefaultPriority, req.RateLimitPerSec, req.RateBurst, policyID,
+		req.Shards), &q)
 	if isUnique(err) {
 		return result{}, conflict("queue name already used in this project")
+	}
+	if isInUse(err) {
+		return result{}, conflict("shards being removed still hold running jobs")
 	}
 	if isCheck(err) {
 		return result{}, badRequest("queue values out of range")

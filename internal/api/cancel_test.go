@@ -90,6 +90,6 @@ func TestCancel(t *testing.T) {
 func inFlight(t *testing.T, ctx context.Context, pool *pgxpool.Pool, queueID uuid.UUID) int {
 	t.Helper()
 	var n int
-	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&n))
+	testdb.Must(t, pool.QueryRow(ctx, `select fl.in_flight($1)`, queueID).Scan(&n))
 	return n
 }

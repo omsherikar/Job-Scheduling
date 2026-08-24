@@ -3,6 +3,7 @@ export type Queue = {
   name: string;
   paused: boolean;
   max_concurrency: number;
+  shards: number;
   in_flight: number;
   breaker_state: string;
   rl_limit_per_sec: number;

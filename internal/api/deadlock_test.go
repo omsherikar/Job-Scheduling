@@ -92,7 +92,7 @@ func TestCancelAgainstFail(t *testing.T) {
 
 	var inFlight int
 	testdb.Must(t, pool.QueryRow(ctx,
-		`select in_flight from queues where id = $1`, ten.queueID).Scan(&inFlight))
+		`select fl.in_flight($1)`, ten.queueID).Scan(&inFlight))
 	if inFlight != 0 {
 		t.Errorf("in_flight = %d, want 0", inFlight)
 	}

@@ -52,7 +52,7 @@ func TestCompleteBatch(t *testing.T) {
 	}
 
 	var inFlight, leases, events int
-	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&inFlight))
+	testdb.Must(t, pool.QueryRow(ctx, `select fl.in_flight($1)`, queueID).Scan(&inFlight))
 	testdb.Must(t, pool.QueryRow(ctx, `select count(*) from job_leases`).Scan(&leases))
 	testdb.Must(t, pool.QueryRow(ctx,
 		`select count(*) from events where topic = 'job.completed'`).Scan(&events))

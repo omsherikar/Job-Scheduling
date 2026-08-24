@@ -8,10 +8,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const releaseSQL = `select fl.queue_release($1, $2)`
+const releaseSQL = `select fl.queue_release($1, $2, $3)`
 
-func Release(ctx context.Context, tx pgx.Tx, queueID uuid.UUID, n int) error {
-	_, err := tx.Exec(ctx, releaseSQL, queueID, n)
+func Release(ctx context.Context, tx pgx.Tx, queueID uuid.UUID, shard int16, n int) error {
+	_, err := tx.Exec(ctx, releaseSQL, queueID, shard, n)
 	return err
 }
 

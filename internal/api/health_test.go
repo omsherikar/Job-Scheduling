@@ -79,9 +79,12 @@ func TestQueueHealthStopped(t *testing.T) {
 	_, err := pool.Exec(ctx, `insert into worker_queues (worker_id, queue_id) values ($1, $2)`,
 		workerID, ten.queueID)
 	testdb.Must(t, err)
-	_, err = pool.Exec(ctx, `update queues set in_flight = max_concurrency,
+	_, err = pool.Exec(ctx, `update queues set
 		breaker_state = 'open', breaker_open_until = fl.now() + interval '30 seconds' where id = $1`,
 		ten.queueID)
+	testdb.Must(t, err)
+	_, err = pool.Exec(ctx, `update queue_shards set in_flight = fl.shard_slots($1, shard)
+		where queue_id = $1`, ten.queueID)
 	testdb.Must(t, err)
 
 	code, _, body = do(t, base, token, "GET", "/stats/queues/"+ten.queueID.String(), nil, nil)
@@ -148,7 +151,10 @@ func TestProjectHealth(t *testing.T) {
 	_, err = pool.Exec(ctx, `insert into jobs (project_id, queue_id, type, retry_policy_id, status, priority, run_at)
 		values ($1, $2, 'noop', $3, 'queued', 2, fl.now())`, ten.projectID, ten.queueID, ten.policyID)
 	testdb.Must(t, err)
-	_, err = pool.Exec(ctx, `update queues set paused = true, in_flight = max_concurrency where id = $1`, other)
+	_, err = pool.Exec(ctx, `update queues set paused = true where id = $1`, other)
+	testdb.Must(t, err)
+	_, err = pool.Exec(ctx, `update queue_shards set in_flight = fl.shard_slots($1, shard)
+		where queue_id = $1`, other)
 	testdb.Must(t, err)
 
 	code, _, body := do(t, base, token, "GET", "/projects/"+ten.projectID.String()+"/queue-health", nil, nil)

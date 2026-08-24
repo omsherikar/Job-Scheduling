@@ -6,6 +6,7 @@ import { Queue } from "@/lib/health";
 
 const fields = [
   { key: "max_concurrency", label: "max concurrency" },
+  { key: "shards", label: "shards" },
   { key: "rl_limit_per_sec", label: "rate limit per second" },
   { key: "rl_burst", label: "rate burst" },
   { key: "default_priority", label: "default priority" },
@@ -20,6 +21,7 @@ export default function Config({ queue, onSaved }: { queue: Queue; onSaved: () =
   const start = () => {
     setDraft({
       max_concurrency: String(queue.max_concurrency),
+      shards: String(queue.shards ?? 1),
       rl_limit_per_sec: String(queue.rl_limit_per_sec),
       rl_burst: String(queue.rl_burst ?? 0),
       default_priority: String(queue.default_priority ?? 0),

@@ -10,9 +10,10 @@ import (
 )
 
 const projectQueuesSQL = `
-select q.id, q.name, q.paused, q.max_concurrency, q.in_flight, q.breaker_state::text,
+select q.id, q.name, q.paused, q.max_concurrency, q.shards, fl.in_flight(q.id), q.breaker_state::text,
        q.breaker_open_until, q.rl_limit_per_sec::double precision,
-       q.rl_limit_per_sec > 0 and q.rl_tokens < 1,
+       q.rl_limit_per_sec > 0
+         and coalesce((select max(s.rl_tokens) from queue_shards s where s.queue_id = q.id), 0) < 1,
        (select count(*)::int from workers w
           join worker_queues wq on wq.worker_id = w.id
          where wq.queue_id = q.id and w.state = 'active'
@@ -51,6 +52,7 @@ type queueBrief struct {
 	Name           string    `json:"name"`
 	Paused         bool      `json:"paused"`
 	MaxConcurrency int       `json:"max_concurrency"`
+	Shards         int       `json:"shards"`
 	InFlight       int       `json:"in_flight"`
 	BreakerState   string    `json:"breaker_state"`
 	RateLimit      float64   `json:"rl_limit_per_sec"`
@@ -73,7 +75,7 @@ func (s *Server) projectHealth(ctx context.Context, tx pgx.Tx, r *http.Request, 
 		var h queueHealth
 		h.Tiers = []tier{}
 		if err := rows.Scan(&h.Queue.ID, &h.Queue.Name, &h.Queue.Paused, &h.Queue.MaxConcurrency,
-			&h.Queue.InFlight, &h.Queue.BreakerState, &h.BreakerUntil, &h.Queue.RateLimit,
+			&h.Queue.Shards, &h.Queue.InFlight, &h.Queue.BreakerState, &h.BreakerUntil, &h.Queue.RateLimit,
 			&h.RateLimited, &h.LiveWorkers); err != nil {
 			rows.Close()
 			return result{}, err

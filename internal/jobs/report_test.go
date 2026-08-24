@@ -223,7 +223,7 @@ func TestProbeOutcomes(t *testing.T) {
 		testdb.Must(t, err)
 		_, err = pool.Exec(ctx, `delete from job_leases where job_id = $1`, jobID)
 		testdb.Must(t, err)
-		_, err = pool.Exec(ctx, `select fl.queue_release($1, 1)`, queueID)
+		_, err = pool.Exec(ctx, `select fl.queue_release($1, 0::smallint, 1)`, queueID)
 		testdb.Must(t, err)
 
 		st, err := jobs.Probe(ctx, pool, jobID, c.Fence, w)

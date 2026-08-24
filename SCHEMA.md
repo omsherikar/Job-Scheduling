@@ -1,6 +1,6 @@
 # The schema
 
-Twenty nine tables, plus a daily partition each for events, logs and the three archives.
+Thirty tables, plus a daily partition each for events, logs and the three archives.
 The shape follows one rule: the database holds the truth about a job, and every process that
 touches one is expected to crash at the worst possible moment.
 
@@ -39,6 +39,7 @@ Where a row is really a pairing, the pair is the key and there is no separate id
 | `job_dependencies` | `(parent_id, child_id)` | an edge exists once |
 | `idempotency_keys` | `(queue_id, key)` | a key is unique within its queue, not globally |
 | `job_transitions` | `(from_status, to_status)` | the edge is the fact |
+| `queue_shards` | `(queue_id, shard)` | a queue has one row per shard |
 | `dead_letter_jobs` | `job_id` | a job is dead lettered at most once |
 | `job_leases` | `job_id` | a job has at most one lease, by construction |
 
@@ -90,12 +91,19 @@ names are a lookup table.
 
 Three denormalizations are deliberate, and each buys something specific.
 
-**`queues.in_flight`** counts claimed and running jobs. It is derivable — count the jobs — but
-deriving it on every claim means an index scan proportional to concurrency on the hottest path
-in the system. Holding the counter turns the concurrency cap into a single-row comparison. The
-cost is that it can drift if a process dies between reserving a slot and claiming it, always
+**`queue_shards.in_flight`** counts claimed and running jobs. It is derivable — count the jobs
+— but deriving it on every claim means an index scan proportional to concurrency on the hottest
+path in the system. Holding the counter turns the concurrency cap into a single-row comparison.
+The cost is that it can drift if a process dies between reserving a slot and claiming it, always
 in the safe direction (too high, so the queue admits fewer), and `fl.reconcile_in_flight()`
 repairs it.
+
+The counter lives on `queue_shards` rather than on `queues` because it is the one row every
+claimer must lock, and a queue that wants more admissions than one row lock can turn over
+splits it. `queues.shards` says how many rows there are and `fl.shard_slots` divides
+`max_concurrency` between them; the sum is still the cap. `jobs.shard` records which shard
+lent a job its slot so the completion returns it to the same one. A queue at the default of
+one shard has exactly the single row it had before.
 
 **`jobs.pending_deps`** counts unfinished parents. Same trade: without it, deciding whether a
 job is runnable means joining `job_dependencies` on every promotion sweep. With it, the
@@ -132,7 +140,7 @@ keeps them small and keeps them from being written when a job finishes:
 | `idx_jobs_promote (run_at) where scheduled/retry_wait and pending_deps = 0` | the promoter |
 | `idx_jobs_queued_age (created_at) where queued` | the priority aging sweep |
 | `idx_jobs_archivable (finished_at) where terminal` | the archiver picking work |
-| `idx_jobs_inflight (queue_id) where claimed/running` | reconciling the counter |
+| `idx_jobs_inflight (queue_id, shard) where claimed/running` | reconciling the counter |
 | `idx_jobs_list (project_id, status, created_at desc, id desc)` | the job explorer's keyset pages |
 | `uq_jobs_schedule_tick (schedule_id, scheduled_for)` | one job per cron tick, ever |
 

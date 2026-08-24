@@ -2,17 +2,15 @@ package jobs
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const releaseGrace = 5 * time.Second
 
-const admitSQL = `select fl.queue_admit($1, $2)`
+const admitSQL = `select slots, sh from fl.queue_admit($1, $2)`
 
 const claimSQL = `
 with cand as materialized (
@@ -28,6 +26,7 @@ upd as (
   update jobs j set
     status = 'claimed',
     fence = j.fence + 1,
+    shard = $6,
     worker_id = $3,
     claimed_at = fl.now(),
     deadline_at = fl.now() + make_interval(secs => j.timeout_ms::double precision / 1000)
@@ -47,44 +46,42 @@ lease as (
 )
 select id, fence, type, payload, attempt_count, deadline_at from upd`
 
-func admit(ctx context.Context, pool *pgxpool.Pool, queueID uuid.UUID, freeSlots int) (int, error) {
+func admit(ctx context.Context, pool *pgxpool.Pool, queueID uuid.UUID, freeSlots int) (int, int16, error) {
 	var n int
-	err := pool.QueryRow(ctx, admitSQL, queueID, freeSlots).Scan(&n)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
-	}
+	var shard int16
+	err := pool.QueryRow(ctx, admitSQL, queueID, freeSlots).Scan(&n, &shard)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return n, nil
+	return n, shard, nil
 }
 
 func Claim(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest) ([]Claimed, error) {
 	adm, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseGrace)
-	n, err := admit(adm, pool, req.QueueID, req.FreeSlots)
+	n, shard, err := admit(adm, pool, req.QueueID, req.FreeSlots)
 	cancel()
 	if err != nil || n == 0 {
 		return nil, err
 	}
 
-	out, err := take(ctx, pool, req, n)
+	out, err := take(ctx, pool, req, shard, n)
 	if err != nil {
 		give, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseGrace)
-		pool.Exec(give, releaseSQL, req.QueueID, n)
+		pool.Exec(give, releaseSQL, req.QueueID, shard, n)
 		cancel()
 		return nil, err
 	}
 	return out, nil
 }
 
-func take(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest, n int) ([]Claimed, error) {
+func take(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest, shard int16, n int) ([]Claimed, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
-	rows, err := tx.Query(ctx, claimSQL, req.QueueID, n, req.WorkerID, req.Lease.Seconds(), req.Types)
+	rows, err := tx.Query(ctx, claimSQL, req.QueueID, n, req.WorkerID, req.Lease.Seconds(), req.Types, shard)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +100,7 @@ func take(ctx context.Context, pool *pgxpool.Pool, req ClaimRequest, n int) ([]C
 	}
 
 	if len(out) < n {
-		if err := Release(ctx, tx, req.QueueID, n-len(out)); err != nil {
+		if err := Release(ctx, tx, req.QueueID, shard, n-len(out)); err != nil {
 			return nil, err
 		}
 	}

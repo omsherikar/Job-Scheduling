@@ -64,7 +64,7 @@ func TestReaperRecoversCrash(t *testing.T) {
 	var leases int
 	testdb.Must(t, pool.QueryRow(ctx,
 		`select status::text, attempt_count from jobs where id = $1`, jobID).Scan(&status, &attemptCount))
-	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&inFlight))
+	testdb.Must(t, pool.QueryRow(ctx, `select fl.in_flight($1)`, queueID).Scan(&inFlight))
 	testdb.Must(t, pool.QueryRow(ctx, `select count(*) from job_leases where job_id = $1`, jobID).Scan(&leases))
 
 	if status != "retry_wait" {
@@ -156,7 +156,7 @@ func TestReaperDeadLetters(t *testing.T) {
 	}
 
 	var inFlight int
-	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&inFlight))
+	testdb.Must(t, pool.QueryRow(ctx, `select fl.in_flight($1)`, queueID).Scan(&inFlight))
 	if inFlight != 0 {
 		t.Errorf("in_flight = %d, want 0", inFlight)
 	}
@@ -183,7 +183,7 @@ func TestSweepGrace(t *testing.T) {
 	testdb.Must(t, err)
 	_, err = pool.Exec(ctx, `delete from job_leases where job_id = $1`, jobID)
 	testdb.Must(t, err)
-	_, err = pool.Exec(ctx, `select fl.queue_release($1, 1)`, queueID)
+	_, err = pool.Exec(ctx, `select fl.queue_release($1, 0::smallint, 1)`, queueID)
 	testdb.Must(t, err)
 
 	swept, err := scheduler.SweepOrphanExecutions(ctx, pool, 100)
@@ -295,7 +295,7 @@ func TestReaperRacingReport(t *testing.T) {
 	fixed, err := jobs.ReconcileInFlight(ctx, pool)
 	testdb.Must(t, err)
 	if fixed != 0 {
-		t.Errorf("in_flight drift corrected on %d queues, want 0", fixed)
+		t.Errorf("in_flight drift corrected on %d shards, want 0", fixed)
 	}
 
 	testdb.CheckInvariants(t, ctx, pool)

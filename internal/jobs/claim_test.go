@@ -200,7 +200,7 @@ func TestPausedQueue(t *testing.T) {
 		t.Errorf("claimed+running = %d, want 0", got)
 	}
 	var flight int
-	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&flight))
+	testdb.Must(t, pool.QueryRow(ctx, `select fl.in_flight($1)`, queueID).Scan(&flight))
 	if flight != 0 {
 		t.Errorf("queues.in_flight = %d, want 0", flight)
 	}
@@ -214,8 +214,10 @@ func TestTokenBucket(t *testing.T) {
 	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 1000)
 	seedJobs(t, ctx, pool, projectID, queueID, policyID, 50)
 	_, err := pool.Exec(ctx, `update queues
-		set rl_limit_per_sec = 1, rl_burst = 10, rl_tokens = 10, rl_refilled_at = fl.now()
-		where id = $1`, queueID)
+		set rl_limit_per_sec = 1, rl_burst = 10 where id = $1`, queueID)
+	testdb.Must(t, err)
+	_, err = pool.Exec(ctx, `update queue_shards
+		set rl_tokens = 10, rl_refilled_at = fl.now() where queue_id = $1`, queueID)
 	testdb.Must(t, err)
 
 	reqs := claimReqs(t, ctx, pool, projectID, queueID, 8, 5)
@@ -425,7 +427,7 @@ func TestClaimSkipsUnknownType(t *testing.T) {
 	}
 
 	var inFlight int
-	testdb.Must(t, pool.QueryRow(ctx, `select in_flight from queues where id = $1`, queueID).Scan(&inFlight))
+	testdb.Must(t, pool.QueryRow(ctx, `select fl.in_flight($1)`, queueID).Scan(&inFlight))
 	if inFlight != 1 {
 		t.Errorf("in_flight = %d, want 1", inFlight)
 	}

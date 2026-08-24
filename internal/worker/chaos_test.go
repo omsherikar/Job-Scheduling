@@ -137,10 +137,11 @@ func TestFaultInjection(t *testing.T) {
 		t.Errorf("open executions = %d, want 0", open)
 	}
 
-	over := testdb.Count(t, ctx, pool, `select count(*) from queues q where q.in_flight < (
-		select count(*) from jobs j where j.queue_id = q.id and j.status in ('claimed', 'running'))`)
+	over := testdb.Count(t, ctx, pool, `select count(*) from queue_shards s where s.in_flight < (
+		select count(*) from jobs j where j.queue_id = s.queue_id and j.shard = s.shard
+		  and j.status in ('claimed', 'running'))`)
 	if over != 0 {
-		t.Errorf("queues counting fewer in flight than are running = %d, want 0", over)
+		t.Errorf("shards counting fewer in flight than are running = %d, want 0", over)
 	}
 
 	repaired, err := jobs.ReconcileInFlight(ctx, pool)

@@ -35,8 +35,8 @@ func NewQueue(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, 
 	t.Helper()
 	var queueID uuid.UUID
 	Must(t, pool.QueryRow(ctx, `insert into queues
-		(project_id, name, retry_policy_id, max_concurrency, rl_limit_per_sec, rl_burst, rl_tokens)
-		values ($1, $2, $3, $4, 1000000, 1000000, 1000000) returning id`,
+		(project_id, name, retry_policy_id, max_concurrency, rl_limit_per_sec, rl_burst)
+		values ($1, $2, $3, $4, 1000000, 1000000) returning id`,
 		projectID, uuid.NewString(), policyID, maxConcurrency).Scan(&queueID))
 	return queueID
 }
@@ -166,10 +166,11 @@ func CheckInvariants(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 
 	var drift int
-	Must(t, pool.QueryRow(ctx, `select count(*) from queues q where q.in_flight <> (
-		select count(*) from jobs j where j.queue_id = q.id and j.status in ('claimed', 'running'))`).Scan(&drift))
+	Must(t, pool.QueryRow(ctx, `select count(*) from queue_shards s where s.in_flight <> (
+		select count(*) from jobs j where j.queue_id = s.queue_id and j.shard = s.shard
+		  and j.status in ('claimed', 'running'))`).Scan(&drift))
 	if drift != 0 {
-		t.Errorf("queues with in_flight drift = %d, want 0", drift)
+		t.Errorf("shards with in_flight drift = %d, want 0", drift)
 	}
 
 	var total, summed int

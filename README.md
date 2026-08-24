@@ -100,6 +100,7 @@ its next heartbeat. `POST /jobs/{id}/retry` moves a waiting job to the front of 
 | `max_depth` | best effort cap on queued jobs, see below |
 | `default_priority` | priority given to jobs that do not set one |
 | `retry_policy_id` | which policy governs backoff and attempts |
+| `shards` | how many rows the concurrency counter is split across, 1 to 64 |
 
 `max_depth` is advisory. It is checked with a count at submission rather than held by a
 constraint, because the counter that would enforce it was a contended row on the write path.
@@ -108,6 +109,35 @@ an invariant.
 
 `POST /queues/{id}/pause` and `/resume` stop and start claiming. A queue also stops on its own
 when the breaker trips, and probes one job at a time while half open.
+
+### Shards
+
+Admission takes a row lock so the concurrency cap can be a single comparison. That row is the
+only serialisation point in claiming, and past a few dozen simultaneous claimers it becomes the
+limit. `shards` splits the counter across that many rows. `max_concurrency` is divided between
+them, remainder to the low shards, so eight shards over a cap of ten give three, three, two,
+two. The cap still holds exactly; what changes is how many claimers can be admitted at once.
+
+A claimer reads the shard rows unlocked, picks one that has room, and locks only that one. It
+never holds two, so there is no lock ordering to get wrong. The shard a job was admitted on is
+written to `jobs.shard` and read back when the slot is released, so a completion returns the
+slot to the shard that lent it.
+
+Sharding costs something and buys nothing until the queue row is actually contended. Measured
+on one queue with a warm cache:
+
+| concurrent claimers | shards=1 | shards=2 | shards=4 | shards=8 |
+|---|---|---|---|---|
+| 16 | 1455/s | 1189/s | 1437/s | 1554/s |
+| 128 | 410/s | 485/s | 707/s | 989/s |
+
+At sixteen the round trip dominates and the counter is not the bottleneck, so shards make no
+difference. At a hundred and twenty eight the row lock is the bottleneck and eight shards carry
+about two and a half times the admissions. A second run of the same measurement put the
+hundred and twenty eight row at 265, 595, 694 and 1159. The multiplier moves; the shape does not.
+
+Leave it at 1 unless a queue is measurably starved on admission. Raising `shards` is always
+allowed. Lowering it is refused while a shard being removed still holds a running job.
 
 ## Retry, snooze and the dead letter queue
 

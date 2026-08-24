@@ -186,7 +186,7 @@ const listJobsTail = `order by created_at desc, id desc`
 
 const cancelSQL = `
 with prev as (
-  select id, status as old_status, queue_id, project_id from jobs where id = $1 for update
+  select id, status as old_status, queue_id, project_id, shard from jobs where id = $1 for update
 ),
 upd as (
   update jobs j set status = 'cancelled', finished_at = fl.now(), worker_id = null
@@ -194,7 +194,8 @@ upd as (
   where j.id = prev.id and prev.old_status not in ('completed', 'dead_letter', 'cancelled')
   returning j.id
 )
-select prev.old_status::text, prev.queue_id, prev.project_id, (select count(*) from upd) > 0
+select prev.old_status::text, prev.queue_id, prev.project_id, prev.shard,
+       (select count(*) from upd) > 0
 from prev`
 
 const cancelLeaseSQL = `delete from job_leases where job_id = $1`
@@ -651,8 +652,9 @@ func loadExecutions(ctx context.Context, tx pgx.Tx, jobID uuid.UUID) ([]execView
 func (s *Server) cancelJob(ctx context.Context, tx pgx.Tx, r *http.Request, sc scope) (result, error) {
 	var oldStatus string
 	var queueID, projectID uuid.UUID
+	var shard int16
 	var cancelled bool
-	err := tx.QueryRow(ctx, cancelSQL, sc.entityID).Scan(&oldStatus, &queueID, &projectID, &cancelled)
+	err := tx.QueryRow(ctx, cancelSQL, sc.entityID).Scan(&oldStatus, &queueID, &projectID, &shard, &cancelled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return result{}, notFound("job")
 	}
@@ -670,7 +672,7 @@ func (s *Server) cancelJob(ctx context.Context, tx pgx.Tx, r *http.Request, sc s
 		if _, err := tx.Exec(ctx, cancelLeaseSQL, sc.entityID); err != nil {
 			return result{}, err
 		}
-		if err := jobs.Release(ctx, tx, queueID, 1); err != nil {
+		if err := jobs.Release(ctx, tx, queueID, shard, 1); err != nil {
 			return result{}, err
 		}
 	}

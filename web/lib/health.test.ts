@@ -8,6 +8,7 @@ function health(over: Partial<QueueHealth> = {}): QueueHealth {
       name: "email",
       paused: false,
       max_concurrency: 4,
+      shards: 1,
       in_flight: 0,
       breaker_state: "closed",
       rl_limit_per_sec: 0,
