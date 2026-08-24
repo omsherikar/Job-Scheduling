@@ -1,13 +1,13 @@
 # How it works
 
 Fenceline is a job scheduler whose only coordination point is Postgres. There is no
-broker, no Redis, no lock service. Every claim, every retry, every state change is a
-row and a transaction, and the correctness argument is about what the database will
-and will not allow rather than about what the Go code remembers to do.
+broker and no separate lock service. Every claim, retry, and state change is a row and
+a transaction, so the correctness argument rests on what the database will allow
+rather than on what the Go code remembers to do.
 
-That choice is the whole design. It costs throughput — a claim is a round trip and a
-commit, not an in-memory pop — and it buys a system where a process can be killed at
-any instruction and the recovery is already written down.
+The cost is throughput: a claim is a round trip and a commit rather than an in-memory
+pop. What it buys is that a process can be killed at any instruction and the recovery
+is already written down.
 
 ## The processes
 
@@ -33,8 +33,8 @@ Five binaries, each taking `DATABASE_URL` and nothing else that matters. They do
 talk to each other. The dotted lines are one `pg_notify` channel, `fl_events`, which
 the notifier fires when the event tail moves; the API relays it to open streams and
 workers treat it as a hint to poll early. It is a latency optimisation and never a
-correctness requirement — with the notifier off, enqueue to start goes from 17 ms to
-about seven seconds, and nothing else changes.
+correctness requirement. With the notifier off, enqueue to start goes from 17 ms to
+about seven seconds and nothing else changes.
 
 | process | what it does |
 |---|---|
@@ -66,8 +66,8 @@ update jobs set status = 'running'
  where id = $1 and fence = $2 and status = 'claimed'
 ```
 
-Zero rows affected is not an error to retry. It is the answer: someone else owns this
-job now, stop. `fence >= attempt_count` is a check constraint, so the two can never be
+Zero rows affected is the answer, not an error to retry: someone else owns the job
+now. `fence >= attempt_count` is a check constraint, so the two counters cannot be
 silently swapped.
 
 ## Claiming
@@ -89,7 +89,7 @@ sequenceDiagram
 ```
 
 Admission and claiming are separate transactions on purpose. Admission is the only
-part that must serialise — it is a counter comparison — so it is kept as short as
+part that must serialise, being a counter comparison, so it is kept as short as
 possible and committed on its own. The claim then runs with `for update skip locked`,
 which never blocks: two workers reaching for the same rows take disjoint sets rather
 than queueing.
@@ -122,9 +122,9 @@ partition, and a process paused long enough by the operating system are the same
 event, and they get the same handling. When the fenced worker comes back and tries to
 report, its fence is stale and its write matches nothing.
 
-That last part is what makes the design work at all. A lease expiring is a guess, and
-the guess is sometimes wrong — the worker was alive, just slow. Fencing means a wrong
-guess costs a duplicate execution but never a duplicate completion.
+A lease expiring is a guess, and the guess is sometimes wrong: the worker was alive,
+just slow. Fencing is what makes a wrong guess survivable, since it costs a duplicate
+execution but never a duplicate completion.
 
 ## The outbox
 
@@ -155,7 +155,7 @@ event before the caller released the queue slot, while the success path released
 first. Measured under load, that produced 391 deadlocks in 20 trials, and worse: two
 completions out of 2400 had their already-successful handlers reported as lost and
 re-run. The invariant checker passed on that state, because nothing was structurally
-wrong — the ledger simply said something false.
+wrong; the ledger simply said something false.
 
 `queues` sits ahead of `queue_shards` because the only path that needs both is
 admission with an open circuit breaker, and it takes them in that order.

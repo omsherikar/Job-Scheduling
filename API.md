@@ -18,7 +18,7 @@ Authorization: Bearer <token>
 ```
 
 An `fl_session` cookie is accepted as an alternative if a client sets one, but no
-response sets it for you — the token comes back in the body and it is yours to store.
+response sets it for you: the token comes back in the body and it is yours to store.
 `POST /auth/logout` ends the session.
 
 Passwords are argon2id. Sessions are rows with a 30 day expiry, so logging out
@@ -38,7 +38,7 @@ anything an admin can, and so on down.
 | `owner` | delete the organization |
 
 A request below the required role gets `403`. A request for something outside your
-organizations gets `404`, not `403` — existence is not leaked to non-members.
+organizations gets `404` rather than `403`, so existence is not leaked to non-members.
 
 ## Errors
 
@@ -157,7 +157,7 @@ can pass the check at once and overshoot a little. It bounds growth; it is not a
 invariant. Hitting it returns `429`.
 
 `shards` splits the concurrency counter across that many rows so admission is not one
-lock. It cannot change while the queue holds a running job — `409`. See `README.md`
+lock. Changing it while the queue holds a running job is a `409`. See `README.md`
 for when it is worth raising, which is later than you would think.
 
 A paused queue stops being claimed from immediately. Jobs already running finish.
@@ -235,7 +235,8 @@ A dead-lettered job keeps its full attempt history in `execution_history`.
 
 Replaying one resets `attempt_count`, bumps `replay_generation`, and queues it. If the
 job had descendants that were cancelled when it died, the replay is refused with the
-list of ids — reviving a parent without its children would leave a half-run graph.
+list of ids, because reviving a parent without its children would leave a half-run
+graph.
 
 Bulk replay takes `{"limit": 100, "rate_per_sec": 10}` and staggers `run_at` so a
 drained dead letter queue does not immediately flood the live one.
@@ -270,8 +271,8 @@ only the prose depends on the key. `state` is `current`, `stale`, `pending`, or
 ```
 
 Five-field cron. The timezone is a foreign key to a table seeded from
-`pg_timezone_names`, so a schedule that Postgres cannot interpret cannot be stored —
-the failure happens at creation, not at three in the morning six weeks later.
+`pg_timezone_names`, so a schedule that Postgres cannot interpret cannot be stored.
+The failure happens at creation rather than at three in the morning six weeks later.
 
 `0 3 * * *` in `America/New_York` fires at 3am local across daylight saving
 transitions, not at a fixed UTC offset.

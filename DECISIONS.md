@@ -40,8 +40,8 @@ a duplicate execution, never a duplicate completion.
 
 **What it costs:** every state-changing query grows a `where fence = $n`, and callers
 must treat zero rows as an answer rather than an error. Getting that backwards is the
-one mistake that breaks the guarantee — an earlier version classified a fenced write
-as a retryable database error, and re-ran jobs that had already succeeded.
+one mistake that breaks the guarantee. An earlier version classified a fenced write
+as a retryable database error and re-ran jobs that had already succeeded.
 
 ## Two counters instead of one
 
@@ -84,8 +84,8 @@ Sharding buys nothing at ordinary concurrency:
 
 At sixteen claimers the round trip dominates and the counter is not the bottleneck. At
 a hundred and twenty eight it is, and eight shards carry about two and a half times the
-admissions. A second run of the same measurement gave 265, 595, 694 and 1159 — the
-multiplier moves between runs, the shape does not.
+admissions. A second run of the same measurement gave 265, 595, 694 and 1159, so the
+multiplier varies between runs even though the ordering holds.
 
 Multiple queues already gave 4.8 times the throughput of one, which is the manual
 version of the same idea. Sharding is for when you want one logical queue.
@@ -94,7 +94,7 @@ version of the same idea. Sharding is for when you want one logical queue.
 while the queue holds a running job. That rule exists because the first version did
 not have it: raising `shards` on a queue at its limit gave the new shards a full
 allowance each while the original still held every slot it had lent, and the cap was
-exceeded — measured at 12 in flight against a cap of 10. Resharding a hot queue now
+exceeded, measured at 12 in flight against a cap of 10. Resharding a hot queue now
 means pausing it and letting it drain.
 
 Redistributing counters live instead would have avoided the pause, but it races with
@@ -113,8 +113,9 @@ deadlocks in 20 trials**, and two completions out of 2400 had already-successful
 handlers reported as `lost` and re-run.
 
 The invariant checker passed on that state. Nothing was structurally broken; the
-ledger just said something false. That is the argument for ordering locks by rule
-rather than by whatever each function happens to need next.
+ledger just said something false. Ordering locks by a fixed rule is what prevents
+that, since ordering them by whatever each function happens to need next is how the
+inversion got in.
 
 ## The outbox lock is per project, not global
 
@@ -130,9 +131,9 @@ deliberately; nothing consumes it.
 
 Enqueue to start is 7,472 ms at p50 on polling alone and 17 ms with notify on.
 
-Tempting to depend on it. It is not depended on: every path that notify accelerates
-also has a poll behind it, and the WebSocket stream falls back to a two second poll if
-notifications stop arriving. `pg_notify` does not survive a connection drop and has no
+Nothing depends on it. Every path that notify accelerates also has a poll behind it,
+and the WebSocket stream falls back to a two second poll if notifications stop
+arriving. `pg_notify` does not survive a connection drop and has no
 delivery guarantee, so a system that needs it to be correct is a system that breaks
 quietly. A missed notification here costs latency and nothing else.
 
@@ -145,8 +146,8 @@ leaves nothing behind.
 **There are no default partitions, deliberately.** A default partition silently
 swallows rows for a day nobody created, and then blocks that day's partition from
 being created later. Without one, if the scheduler stops cutting partitions for more
-than thirty days, inserts start failing. That is loud, and loud beats quiet
-misfiling.
+than thirty days, inserts start failing, which is noisy but easier to diagnose than
+rows quietly landing in the wrong day.
 
 ## The database enforces what it can
 
@@ -157,23 +158,23 @@ fires once because of a unique index on `(schedule_id, scheduled_for)`, not beca
 the scheduler is careful. A schedule cannot store a timezone Postgres does not know,
 because the timezone is a foreign key to a table seeded from `pg_timezone_names`.
 
-The pattern: if an invariant can be a constraint, it is a constraint. Application code
-that "always remembers to" is a bug waiting for the second caller.
+Where an invariant can be a constraint, it is one. Enforcing it in application code
+instead works until a second caller is added that does not know to.
 
 ## Denormalizations, and what each one bought
 
 Three, each with a specific measurement behind it.
 
-`queue_shards.in_flight` — deriving the concurrency count on every claim means an index
+`queue_shards.in_flight`. Deriving the concurrency count on every claim means an index
 scan proportional to concurrency on the hottest path. The counter makes the cap a
 single-row comparison. Cost: it can drift high, and `fl.reconcile_in_flight()` repairs
 it.
 
-`jobs.pending_deps` — without it the promoter joins `job_dependencies` on every sweep.
+`jobs.pending_deps`. Without it the promoter joins `job_dependencies` on every sweep.
 With it the partial index carries `pending_deps = 0` in its predicate and never reads
 the edges.
 
-`queue_stats_minute` — computing throughput and percentiles from the ledger on demand
+`queue_stats_minute`. Computing throughput and percentiles from the ledger on demand
 was 635 ms on a dashboard endpoint that polls. The rollup makes it an index lookup.
 
 ## `max_depth` is advisory and says so
@@ -182,8 +183,8 @@ A real queue depth cap needs a counter on the write path, and that counter is a
 contended row on every submit. It is a count at submission instead, so two callers can
 pass the check at once and overshoot slightly.
 
-Documented as advisory rather than quietly approximate. A limit that is sometimes
-exceeded is fine if everyone knows; it is a bug if the docs claim it is a limit.
+It is documented as advisory for that reason. Overshooting slightly is tolerable when
+callers know to expect it, and misleading if the docs describe it as a hard cap.
 
 ## Indexes are added on evidence and removed on evidence
 
@@ -219,19 +220,20 @@ messages can contain anything a handler chose to put in them.
 can be switched off.
 
 Without this, testing retry, cron, and lease expiry means either sleeping or mocking.
-Sleeping makes the suite take hours; mocking tests the mock. With it the suite exercises
-the real elapsed-time logic and finishes in minutes.
+Sleeping would make the suite take hours, and mocking would test the mock. With an
+injectable clock the suite exercises the real elapsed-time logic and finishes in
+minutes.
 
 **What it costs:** every timestamp must go through `fl.now()`. A single stray `now()`
 would be invisible in production and would break tests in a confusing way. One did get
-in — schedules computed `next_run_at` from the Go wall clock — and it took a test that
+in, where schedules computed `next_run_at` from the Go wall clock, and it took a test that
 pins the tick to 03:00 America/New_York to catch it.
 
 ## What was deliberately not built
 
 **TLA+ or a formal model.** Considered for the claim protocol. The fault injection
 suite exercises the same properties against the real implementation, including the
-parts a model would abstract away — connection death mid-transaction, the counter
+parts a model would abstract away: connection death mid-transaction, the counter
 drift, the reaper racing a live worker. A model of the protocol would not have caught
 the lock-order inversion, because the protocol was fine and the implementation was not.
 

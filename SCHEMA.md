@@ -30,7 +30,7 @@ owns the job. No process caches the answer.
 
 Most tables take a synthetic `uuid` primary key from `fl.uuidv7()`. v7 puts a millisecond
 timestamp in the high bits, so successive ids sort together and inserts land at the end of the
-index rather than scattering across it. That matters on `jobs`, which is the table under
+index instead of scattering across it. That matters on `jobs`, which is the table under
 constant insert pressure.
 
 Where a row is really a pairing, the pair is the key and there is no separate id:
@@ -52,28 +52,29 @@ believe they hold the same job" unrepresentable rather than merely unlikely.
 Partitioned tables must carry the partition key in the primary key, so `events` is
 `(created_at, id)`, `job_logs` and `job_logs_archive` are `(ts, id)`, `jobs_archive` is
 `(terminal_at, id)` and `job_executions_archive` is `(finished_at, id)`. The id alone is still
-unique — the sequence guarantees it — but Postgres needs the partition column in the key.
+unique, since the sequence guarantees it, but Postgres needs the partition column in
+the key.
 
 `events_retention` has a primary key of `only_row boolean` with `check (only_row)`. It is a
 one-row table and the key says so. `failure_summaries` is keyed by `queue_id` because a queue
-has at most one current summary; a new one replaces the old rather than accumulating.
+has at most one current summary, and a new one replaces the old instead of accumulating.
 
 ## What happens when you delete something
 
 Cascade behaviour is not uniform, and the differences are deliberate.
 
-**Cascade — the child has no meaning without the parent.** Deleting an organization removes its
+**Cascade, where the child has no meaning without the parent.** Deleting an organization removes its
 projects, their queues, their jobs and everything hanging off them. Deleting a queue removes its
 schedules, its idempotency keys, its per-minute stats and its worker subscriptions. A job takes
 its dependency edges and its lease with it.
 
-**Restrict — the reference is evidence and must not disappear quietly.**
+**Restrict, where the reference is evidence and must not disappear quietly.**
 `jobs.retry_policy_id`, `queues.retry_policy_id`, `jobs.worker_id`, `job_leases.worker_id` and
 `job_executions.worker_id` all restrict. You cannot delete a retry policy that queues still use,
 and you cannot delete a worker whose name appears in the execution ledger. The ledger is the
 record of what ran where; a foreign key that let a worker vanish would leave it lying.
 
-**Set null — the reference is context, not substance.** `audit_log.actor_id` and
+**Set null, where the reference is context rather than substance.** `audit_log.actor_id` and
 `dead_letter_jobs.replayed_by` null out when a user is deleted: the action still happened and
 the audit row must survive it. `jobs.schedule_id` nulls out when a schedule is deleted, because
 the job it already produced is a real job and should finish.
@@ -90,13 +91,13 @@ schedule can never be created that the cron materialiser will later fail to inte
 ## Normalization, and where it is broken on purpose
 
 The relational core is in third normal form. Roles live on the membership, not duplicated onto
-the user; retry policy is referenced by queues and jobs rather than copied into each; timezone
+the user; retry policy is referenced by queues and jobs instead of copied into each; timezone
 names are a lookup table.
 
 Three denormalizations are deliberate, and each buys something specific.
 
-**`queue_shards.in_flight`** counts claimed and running jobs. It is derivable — count the jobs
-— but deriving it on every claim means an index scan proportional to concurrency on the hottest
+**`queue_shards.in_flight`** counts claimed and running jobs. It is derivable by counting
+the jobs, but deriving it on every claim means an index scan proportional to concurrency on the hottest
 path in the system. Holding the counter turns the concurrency cap into a single-row comparison.
 The cost is that it can drift if a process dies between reserving a slot and claiming it, always
 in the safe direction (too high, so the queue admits fewer), and `fl.reconcile_in_flight()`
@@ -136,7 +137,7 @@ create index idx_jobs_claimable on jobs (queue_id, priority desc, run_at, id)
 
 The `where` clause is the whole design. The index contains only rows that can be claimed, so it
 stays the size of the backlog rather than the size of the table. A claim reads 54 buffers at
-twenty thousand rows and 104 at a million — fifty times the rows for under twice the reads. The
+twenty thousand rows and 104 at a million, fifty times the rows for under twice the reads. The
 column order matches the claim's `order by` exactly, so the index supplies the ordering and
 there is no sort.
 
@@ -178,22 +179,22 @@ partition is instant and leaves nothing behind.
 There are **no default partitions**, deliberately: a default partition silently swallows rows
 that belong to a day nobody created, and then blocks that day's partition from being created
 later. The scheduler cuts partitions thirty days ahead. If it stops for longer than that,
-inserts start failing — which is loud, and preferable to silent misfiling.
+inserts start failing, which is loud and preferable to silent misfiling.
 
 Hot data (events, logs) is kept seven days; the archives ninety. They are separate settings
 because an archive that cannot outlive the hot table is not an archive.
 
 ## The constraints that carry the invariants
 
-Structure is enforced where it can be, rather than in application code:
+Structure is enforced in the database wherever it can be:
 
-- `jobs_terminal_has_finished` — a job is terminal exactly when it has a `finished_at`.
-- `jobs_active_has_owner` — claimed or running implies a worker, a claim time and a deadline.
-- `jobs_deps_only_while_scheduled` — a job waiting on parents is `scheduled` and nothing else.
-- `jobs_fence_matches_attempts` — `fence >= attempt_count`, so the two counters cannot be
+- `jobs_terminal_has_finished`: a job is terminal exactly when it has a `finished_at`.
+- `jobs_active_has_owner`: claimed or running implies a worker, a claim time and a deadline.
+- `jobs_deps_only_while_scheduled`: a job waiting on parents is `scheduled` and nothing else.
+- `jobs_fence_matches_attempts`: `fence >= attempt_count`, so the two counters cannot be
   confused for one another.
-- `je_outcome_with_finish` — an execution has an outcome exactly when it has finished.
-- `queues_open_has_deadline` — an open circuit breaker has a time it reopens at.
+- `je_outcome_with_finish`: an execution has an outcome exactly when it has finished.
+- `queues_open_has_deadline`: an open circuit breaker has a time it reopens at.
 
 The state machine itself is a trigger checking `fl.legal_transition`, whose nineteen edges are
 asserted at migration time to match the `job_transitions` table. `make diagram` draws that table,
@@ -204,5 +205,5 @@ so the picture cannot drift from the rule.
 `job_executions` is append-only per attempt: one row per try, carrying the attempt number, the
 replay generation, the fence it held, the worker that ran it, the outcome, the error and the
 duration. `job_logs` hangs off the execution, so a log line is attributed to a specific attempt
-rather than to the job in general. Nothing is overwritten on retry, which is what makes
+and not to the job in general. Nothing is overwritten on retry, which is what makes
 `GET /jobs/{id}` able to show every attempt with its own logs and its own failure.

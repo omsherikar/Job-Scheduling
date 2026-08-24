@@ -248,7 +248,7 @@ it costs throughput on a single very busy project and nothing across projects.
 
 Terminal jobs move to `jobs_archive` with their ledger after a day, dead lettered ones after
 thirty. Events and logs are kept seven days, archives ninety, each by dropping whole daily
-partitions rather than deleting rows. Partitions are cut thirty days ahead; if the scheduler
+partitions instead of deleting rows. Partitions are cut thirty days ahead; if the scheduler
 stops for longer than that, writes begin to fail.
 
 ## Numbers
@@ -275,7 +275,7 @@ repetitions the candidate select read the same fifty four buffers throughout, be
 the archiver switched off; archiving bounds the footprint, not this.
 
 A single cold run on the settings above reads 54 buffers at twenty thousand rows and 104 at a
-million — fifty times the rows for under twice the reads. Sublinear rather than flat once the
+million, fifty times the rows for under twice the reads. Sublinear rather than flat once the
 repetitions stop hiding the cold index descent, which is the honest version of the same claim.
 
 **Enqueue to start**, 200 jobs arriving 15 ms apart, concurrency 8, one second poll:
@@ -314,12 +314,12 @@ otherwise idle database with the statistics reset first:
 
 Most of that one and a third commits is starting the attempt, which is the one step still done
 a job at a time: claiming takes two commits but spreads them over everything it claims, and
-reporting spreads one over the batch it reports. The WAL figure is a steady-state one — a cold
+reporting spreads one over the batch it reports. The WAL figure is a steady-state one; a cold
 run pays several times that in full-page images right after a checkpoint.
 
 ## Watching it
 
-Three views expose the operational numbers, so they come from the database rather than
+Three views expose the operational numbers, so they come from the database instead of
 from counters that go wrong after a crash or disagree between instances:
 
 | view | what it answers |

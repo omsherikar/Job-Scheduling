@@ -1,8 +1,8 @@
 # Tests
 
-142 Go tests and 15 in the dashboard. What matters is not the count — it is that the
-hard properties are tested against the real database under real concurrency, rather
-than against mocks that agree with the code.
+142 Go tests and 15 in the dashboard. The count matters less than where they run: the
+hard properties are tested against a real database under real concurrency, not against
+mocks that agree with the code by construction.
 
 ```
 make db-up
@@ -23,8 +23,8 @@ pool := testdb.New(t)
 ```
 
 The clone is a real database, dropped on cleanup. Tests never share state, never need
-truncation between cases, and can run concurrently — which matters, because most of
-them are about concurrency and a serialised suite would take an hour.
+truncation between cases, and can run concurrently. That last part matters, because
+most of them are about concurrency and a serialised suite would take an hour.
 
 The template is built once per `go test` invocation and reused, so the migration cost
 is paid once rather than 142 times.
@@ -57,59 +57,56 @@ It checks four things that must never be true:
 
 **The invariant checker passed on the lock-order bug.** Two jobs whose handlers had
 already succeeded were reported as `lost` and re-run, and nothing structural was
-wrong: the ledger simply said something false. Structural invariants catch structural
-damage. They do not catch a system that is consistently recording the wrong thing.
+wrong: the ledger simply said something false. These checks catch structural damage,
+not a system that is consistently recording something untrue.
 
 ## What the critical tests actually prove
 
-**`TestClaimExactlyOnce`, `TestClaimCapHolds`** — N workers race for the same jobs. No
-job is claimed twice and the concurrency cap is never exceeded. This is the property
-the whole design exists for.
+**`TestClaimExactlyOnce`, `TestClaimCapHolds`**. N workers race for the same jobs. No
+job is claimed twice and the concurrency cap is never exceeded.
 
-**`TestStaleWorkerFenced`** — a worker claims, loses its lease, the reaper reassigns,
+**`TestStaleWorkerFenced`**. A worker claims, loses its lease, the reaper reassigns,
 and then the original worker tries to report. Its write matches nothing. The test
 asserts the fence moved and the stale report changed no rows.
 
-**`TestFaultInjection`** — four workers on a 150 ms lease, a reaper loop, one goroutine
+**`TestFaultInjection`**. Four workers on a 150 ms lease, a reaper loop, one goroutine
 terminating idle-in-transaction backends and another expiring random leases at random,
 over 400 jobs. Asserts every job reaches a terminal state, no job has two successful
-executions in one replay generation, and that fenced writes actually happened — 120 to
-200 of them, because a run with zero fenced writes proves the fault injection was not
-biting rather than proving the system is safe.
+executions in one replay generation, and that fenced writes actually happened, 120 to
+200 of them. A run with zero fenced writes proves the fault injection was not biting,
+not that the system is safe.
 
-**`TestCancelAgainstFail`** — the API cancelling a job at the same moment a worker
+**`TestCancelAgainstFail`**. The API cancelling a job at the same moment a worker
 reports it failed. This is the pair that produced 391 deadlocks in 20 trials before the
 lock order was fixed.
 
-**`TestShardedCap`, `TestShardResizeWithWork`** — the cap holds across shards, work
+**`TestShardedCap`, `TestShardResizeWithWork`**. The cap holds across shards, work
 spreads across more than one, and resizing is refused while the queue holds running
 jobs. The last one exists because the first version of sharding did not have that rule
 and over-admitted 12 against a cap of 10.
 
-**`TestGracefulShutdown`** — SIGTERM with jobs in flight. Running jobs finish or are
+**`TestGracefulShutdown`**. SIGTERM with jobs in flight. Running jobs finish or are
 released cleanly, nothing is stranded claimed.
 
-**`TestSpringForward`, `TestFallBack`** — `0 12 * * *` in `America/New_York` across
+**`TestSpringForward`, `TestFallBack`**. `0 12 * * *` in `America/New_York` across
 both daylight saving transitions lands on noon local the next day, and the elapsed
 time is 23 hours in March and 25 in November. A schedule pinned to a UTC offset would
 give 24 both times and drift an hour off local noon.
 
-**`TestHalfOpenProbe`, `TestBreakerCooldownProbe`** — a tripped breaker admits exactly
+**`TestHalfOpenProbe`, `TestBreakerCooldownProbe`**. A tripped breaker admits exactly
 one job at a time while half open, and the probe budget is not raced by concurrent
 claimers.
 
-**`TestIdempotency`** — replaying a key returns the original job with `200` rather
+**`TestIdempotency`**. Replaying a key returns the original job with `200` rather
 than creating a second one, reusing a key with a different payload is a `409` rather
 than silently returning the old job, and once the key has expired the same key creates
 a fresh job.
 
-**`TestKeysetPagination`, `TestPageSizeCap`** — the cursor does not skip or repeat
+**`TestKeysetPagination`, `TestPageSizeCap`**. The cursor does not skip or repeat
 rows when rows are inserted while paging, and a caller cannot ask for an unbounded
 page.
 
 ## Where the tests are thin
-
-Stated rather than left for someone to discover.
 
 **The model call in `internal/ai` has never run.** There is no API key in CI, so what
 is tested is prompt assembly, the clipping, the caching and staleness logic, and the
@@ -117,7 +114,7 @@ path where no key is configured. The request shape was checked against the SDK s
 rather than against the API.
 
 **The dashboard has no end-to-end test.** The 15 vitest cases cover the health
-derivations — what counts as saturated, starved, rate limited — because that is the
+derivations (what counts as saturated, starved, or rate limited), because that is the
 logic with real branching. Rendering is not tested.
 
 **Multi-node behaviour is simulated, not distributed.** Concurrency tests run many
@@ -136,8 +133,8 @@ go test -race -run TestFaultInjection ./internal/worker/
 go test -race -count=5 -run TestShard ./internal/jobs/
 ```
 
-`-count` is worth using on anything concurrent. A race that appears once in six runs
-is a race.
+`-count` is worth using on anything concurrent, since a race that only shows up in one
+run out of six still needs fixing.
 
 Under parallel load the `internal/jobs` package takes about 130 s on its own; running
 several packages at once against one Postgres can push it past the default 10 minute
@@ -147,7 +144,7 @@ busy.
 ## Before committing
 
 `.claude/agents/slop-check` reads the diff and flags anything that reads as
-machine-written — comments that should not exist, test names that are sentences,
+machine-written: comments that should not exist, test names that are sentences,
 failures that narrate instead of stating values. Run it before every commit; it has
 caught a vacuous assertion that could never fail and a test whose name promised more
 than it checked.
