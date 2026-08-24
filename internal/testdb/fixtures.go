@@ -124,6 +124,13 @@ func NewSession(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID uu
 	return id.String()
 }
 
+func Count(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query string, args ...any) int {
+	t.Helper()
+	var n int
+	Must(t, pool.QueryRow(ctx, query, args...).Scan(&n))
+	return n
+}
+
 func JobStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, jobID uuid.UUID) string {
 	t.Helper()
 	var s string

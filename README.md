@@ -133,10 +133,8 @@ in its payload, and `fail` always errors.
 ## Events
 
 The scheduler turns new events into one payload-less `notify`, coalesced, and workers wake on
-it instead of waiting out their poll. Measured over 200 jobs arriving 15ms apart at
-concurrency 8 with a one second poll: enqueue to start p50 7472ms and p99 14624ms on polling
-alone, against p50 17ms and p99 278ms with the notify path on. A worker is correct either
-way; without it, arrivals faster than one batch per poll simply queue up.
+it instead of waiting out their poll. A worker is correct either way; the difference it makes
+is under Numbers.
 
 Every transition writes to an outbox. `GET /projects/{id}/events?after=<id>` replays from a
 cursor; `GET /projects/{id}/events/stream` is the same thing over a websocket. Frames carry
@@ -153,6 +151,49 @@ Terminal jobs move to `jobs_archive` with their ledger after a day, dead lettere
 thirty. Events and logs are kept seven days, archives ninety, each by dropping whole daily
 partitions rather than deleting rows. Partitions are cut thirty days ahead; if the scheduler
 stops for longer than that, writes begin to fail.
+
+## Numbers
+
+Measured on PostgreSQL 17.11 in docker on an 8 core, 8 GB laptop, `shared_buffers=1GB`,
+`random_page_cost=1.1`, `work_mem=16MB`, `fsync=on`, `synchronous_commit=on`. Treat the shape
+as the result and the absolute figures as this machine.
+
+**Claim latency against table size.** Server-side execution of the claim, batch 50, everything
+but the row count held identical and the transaction rolled back between repetitions:
+
+| rows in `jobs` | table size | claim | candidate select |
+|---|---|---|---|
+| 20,000 | 8 MB | 4.61 ms | 54 buffers |
+| 100,000 | 39 MB | 4.69 ms | 54 buffers |
+| 1,000,000 | 392 MB | 5.94 ms | 54 buffers |
+| 10,000,000 | 3,919 MB | 5.79 ms | 54 buffers |
+
+Five hundred times the rows for twenty six percent more work, and the candidate select reads
+the same fifty four buffers throughout, because `idx_jobs_claimable` is partial on `queued`
+and does not grow with the table. It holds with the archiver switched off; archiving bounds
+the footprint, not this.
+
+**Enqueue to start**, 200 jobs arriving 15 ms apart, concurrency 8, one second poll:
+
+| | p50 | p95 | p99 |
+|---|---|---|---|
+| polling only | 7,472 ms | 13,958 ms | 14,624 ms |
+| notify on | 17 ms | 174 ms | 278 ms |
+
+The tail is queueing rather than wakeup latency: without the push path a worker claims once
+per interval, so arrivals faster than one batch per poll back up. A shorter poll narrows the
+gap.
+
+**Correctness under fault injection.** Four workers on a 150 ms lease, a reaper loop, a
+goroutine terminating idle-in-transaction backends and another expiring random leases, over
+400 jobs: every job reaches a terminal state, no job has two successful executions in one
+replay generation, and 120 to 200 fenced writes are recorded, which is the point. The counter
+a queue keeps of what is in flight is never lower than what is actually running; it can be
+left high by a connection dying between reserving a slot and claiming it, and
+`fl.reconcile_in_flight` restores it exactly.
+
+Not yet measured: time to recover after `kill -9` of k workers, and WAL bytes and database
+CPU per million jobs.
 
 ## Testing
 

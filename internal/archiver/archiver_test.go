@@ -32,13 +32,6 @@ func runJob(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, qu
 	return jobID, exec.ID
 }
 
-func count(t *testing.T, ctx context.Context, pool *pgxpool.Pool, query string, args ...any) int {
-	t.Helper()
-	var n int
-	testdb.Must(t, pool.QueryRow(ctx, query, args...).Scan(&n))
-	return n
-}
-
 func TestArchive(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.New(t)
@@ -70,23 +63,23 @@ func TestArchive(t *testing.T) {
 		t.Fatalf("archived = %d, want 1", n)
 	}
 
-	if c := count(t, ctx, pool, `select count(*) from jobs where id = $1`, jobID); c != 0 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from jobs where id = $1`, jobID); c != 0 {
 		t.Errorf("hot jobs = %d, want 0", c)
 	}
-	if c := count(t, ctx, pool, `select count(*) from job_executions where id = $1`, execID); c != 0 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from job_executions where id = $1`, execID); c != 0 {
 		t.Errorf("hot executions = %d, want 0", c)
 	}
-	if c := count(t, ctx, pool, `select count(*) from job_logs where execution_id = $1`, execID); c != 0 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from job_logs where execution_id = $1`, execID); c != 0 {
 		t.Errorf("hot logs = %d, want 0", c)
 	}
 
-	if c := count(t, ctx, pool, `select count(*) from jobs_archive where id = $1`, jobID); c != 1 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from jobs_archive where id = $1`, jobID); c != 1 {
 		t.Errorf("archived jobs = %d, want 1", c)
 	}
-	if c := count(t, ctx, pool, `select count(*) from job_executions_archive where id = $1`, execID); c != 1 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from job_executions_archive where id = $1`, execID); c != 1 {
 		t.Errorf("archived executions = %d, want 1", c)
 	}
-	if c := count(t, ctx, pool, `select count(*) from job_logs_archive where execution_id = $1`, execID); c != 1 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from job_logs_archive where execution_id = $1`, execID); c != 1 {
 		t.Errorf("archived logs = %d, want 1", c)
 	}
 
@@ -112,7 +105,7 @@ func TestArchive(t *testing.T) {
 	}
 
 	part := "jobs_archive_" + old.Format("20060102")
-	if c := count(t, ctx, pool, `select count(*) from pg_inherits i
+	if c := testdb.Count(t, ctx, pool, `select count(*) from pg_inherits i
 		join pg_class c on c.oid = i.inhrelid
 		join pg_class p on p.oid = i.inhparent
 		where p.relname = 'jobs_archive' and c.relname = $1`, part); c != 1 {
@@ -138,7 +131,7 @@ func TestArchiveRecent(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("archived = %d, want 0", n)
 	}
-	if c := count(t, ctx, pool, `select count(*) from jobs where id = $1`, jobID); c != 1 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from jobs where id = $1`, jobID); c != 1 {
 		t.Errorf("hot jobs = %d, want 1", c)
 	}
 }
@@ -183,7 +176,7 @@ func TestArchiveDeadLetter(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("archived = %d, want 0", n)
 	}
-	if c := count(t, ctx, pool, `select count(*) from dead_letter_jobs where job_id = $1`, jobID); c != 1 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from dead_letter_jobs where job_id = $1`, jobID); c != 1 {
 		t.Errorf("dead letter rows = %d, want 1", c)
 	}
 
@@ -193,13 +186,13 @@ func TestArchiveDeadLetter(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("archived = %d, want 1", n)
 	}
-	if c := count(t, ctx, pool, `select count(*) from dead_letter_jobs where job_id = $1`, jobID); c != 0 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from dead_letter_jobs where job_id = $1`, jobID); c != 0 {
 		t.Errorf("hot dead letter rows = %d, want 0", c)
 	}
-	if c := count(t, ctx, pool, `select count(*) from dead_letter_jobs_archive where job_id = $1`, jobID); c != 1 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from dead_letter_jobs_archive where job_id = $1`, jobID); c != 1 {
 		t.Errorf("archived dead letter rows = %d, want 1", c)
 	}
-	if c := count(t, ctx, pool, `select count(*) from jobs_archive where id = $1`, jobID); c != 1 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from jobs_archive where id = $1`, jobID); c != 1 {
 		t.Errorf("archived jobs = %d, want 1", c)
 	}
 
@@ -231,7 +224,7 @@ func TestPrune(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("pruned = %d, want 1", n)
 	}
-	if c := count(t, ctx, pool, `select count(*) from idempotency_keys where queue_id = $1`, queueID); c != 1 {
+	if c := testdb.Count(t, ctx, pool, `select count(*) from idempotency_keys where queue_id = $1`, queueID); c != 1 {
 		t.Errorf("remaining keys = %d, want 1", c)
 	}
 }
