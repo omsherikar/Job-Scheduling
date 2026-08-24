@@ -33,6 +33,7 @@ Go services and a Next.js dashboard, with Postgres as the only coordination poin
 | dead letter queue | exhausted jobs keep their full attempt history, replayable one at a time or in bulk |
 | circuit breaker | a failing queue stops itself and probes one job at a time while half open |
 | transactional outbox | events are written in the same transaction as the state change |
+| advisory locks | used where ordering or single execution matters: the outbox, partition upkeep, migrations |
 | archiver | terminal jobs and their ledger move to cold tables instead of being deleted |
 
 **Controlling throughput**
@@ -55,6 +56,7 @@ Go services and a Next.js dashboard, with Postgres as the only coordination poin
 | lease extension | long jobs keep their lease and report progress on the heartbeat |
 | graceful drain | SIGTERM finishes what is running and releases the rest |
 | batched completion | completions are grouped to cut round trips |
+| wake on notify | `pg_notify` when the event tail moves, so a worker does not wait out its poll |
 
 **Seeing what happened**
 
@@ -76,6 +78,26 @@ Go services and a Next.js dashboard, with Postgres as the only coordination poin
 | accounts | argon2id passwords, sessions as rows so logout revokes |
 | tenancy | users, organizations, projects, queues, checked by join on every request |
 | roles | owner, admin, member and viewer, held per organization |
+
+## Optional extras, and where each one is
+
+The eight features that were specified as optional. Each is in the tables above; this
+is where to read about it.
+
+| | |
+|---|---|
+| workflow dependencies | the `dependent` row, and [API.md](API.md) for the cancel and replay rules |
+| rate limiting | the `rate limiting` row, applied in `fl.queue_admit` |
+| distributed locking | the `advisory locks` row, and [ARCHITECTURE.md](ARCHITECTURE.md) for the lock order |
+| queue sharding | the `shards` row, with the throughput measurements in [BENCHMARKS.md](BENCHMARKS.md) |
+| event-driven execution | the `wake on notify` row, and the enqueue to start figures in [BENCHMARKS.md](BENCHMARKS.md) |
+| websocket live updates | the `event stream` row, and [API.md](API.md) for subprotocol auth and gap detection |
+| role-based access control | the `roles` row, and [API.md](API.md) for what each role may do |
+| ai failure summaries | the `failure summaries` row, and [API.md](API.md) for the `state` values |
+
+The AI summary is the only one that calls anything outside Postgres. Leave
+`ANTHROPIC_API_KEY` unset and the grouped failure table is still served, with `state`
+reporting `unavailable`.
 
 ## The rest of the documentation
 
