@@ -90,6 +90,11 @@ td {
   white-space: nowrap;
 }
 
+td.wrap {
+  white-space: normal;
+  max-width: 40ch;
+}
+
 tr:hover td {
   background: var(--panel);
 }

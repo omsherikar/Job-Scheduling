@@ -20,7 +20,7 @@ The services are four binaries, each taking `DATABASE_URL`:
 
 ```
 go run ./cmd/api        # http, default port 3001, API_PORT to change it
-go run ./cmd/scheduler  # promoter, cron, breaker, reaper, notifier, partitions
+go run ./cmd/scheduler  # promoter, cron, breaker, reaper, notifier, partitions, summaries
 go run ./cmd/archiver   # hot to cold, idempotency pruning
 go run ./cmd/worker     # claims and runs jobs, see below
 go run ./cmd/migrate    # applies migrations, safe to run twice
@@ -31,6 +31,9 @@ The dashboard lives in `web`:
 ```
 cd web && npm install && npm run dev
 ```
+
+The scheduler writes failure summaries only when `ANTHROPIC_API_KEY` is set. Without it every
+other sweep runs as usual and the summary sweep is a no-op.
 
 It proxies `/api` to `API_URL`, so http calls are same origin. The event stream connects
 straight to the API, which means two variables when the dashboard is not served from the
@@ -138,6 +141,35 @@ hundred and twenty eight row at 265, 595, 694 and 1159. The multiplier moves; th
 
 Leave it at 1 unless a queue is measurably starved on admission. Raising `shards` is always
 allowed. Lowering it is refused while a shard being removed still holds a running job.
+
+### Failure summaries
+
+`GET /queues/{id}/failure-summary` groups the last day of failed executions by error class and
+returns them with a written summary:
+
+```json
+{
+  "window_hours": 24,
+  "failures": [
+    {"error_class": "timeout", "count": 90, "distinct_messages": 2,
+     "latest_message": "context deadline exceeded", "last_seen": "..."}
+  ],
+  "summary": "Nearly every failure is a timeout against the billing host ...",
+  "model": "claude-opus-5",
+  "state": "current"
+}
+```
+
+The grouping is computed on request. The summary is not: the scheduler writes it every few
+minutes for queues whose failures have changed, because a model call is too slow and too
+expensive to sit on an endpoint the dashboard polls. `state` says what you are looking at.
+`current` means the summary matches the failures below it, `stale` means new failures have
+arrived since it was written, `pending` means one is coming, and `unavailable` means the
+scheduler has no `ANTHROPIC_API_KEY` and none will be written. The table is returned in every
+case; only the prose depends on the key.
+
+Error text from jobs is passed to the model as data, and the prompt says so. Nothing in a job's
+error message is treated as an instruction.
 
 ## Retry, snooze and the dead letter queue
 

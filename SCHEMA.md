@@ -1,6 +1,6 @@
 # The schema
 
-Thirty tables, plus a daily partition each for events, logs and the three archives.
+Thirty one tables, plus a daily partition each for events, logs and the three archives.
 The shape follows one rule: the database holds the truth about a job, and every process that
 touches one is expected to crash at the worst possible moment.
 
@@ -52,7 +52,8 @@ Partitioned tables must carry the partition key in the primary key, so `events` 
 unique — the sequence guarantees it — but Postgres needs the partition column in the key.
 
 `events_retention` has a primary key of `only_row boolean` with `check (only_row)`. It is a
-one-row table and the key says so.
+one-row table and the key says so. `failure_summaries` is keyed by `queue_id` because a queue
+has at most one current summary; a new one replaces the old rather than accumulating.
 
 ## What happens when you delete something
 

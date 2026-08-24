@@ -20,6 +20,7 @@ type Config struct {
 	Notify    time.Duration
 	Rollup    time.Duration
 	Sweep     time.Duration
+	Summary   time.Duration
 
 	Batch      int
 	AgeAfter   time.Duration
@@ -44,6 +45,7 @@ func DefaultConfig() Config {
 		Notify:    20 * time.Millisecond,
 		Rollup:    time.Minute,
 		Sweep:     time.Minute,
+		Summary:   5 * time.Minute,
 
 		Batch:      100,
 		AgeAfter:   5 * time.Minute,
@@ -98,6 +100,10 @@ func Run(ctx context.Context, pool *pgxpool.Pool, cfg Config) error {
 	})
 	start("rollup", cfg.Rollup, func(ctx context.Context) error {
 		_, err := Rollup(ctx, pool, cfg.Lookback)
+		return err
+	})
+	start("summary", cfg.Summary, func(ctx context.Context) error {
+		_, err := Summarize(ctx, pool, cfg.Batch)
 		return err
 	})
 

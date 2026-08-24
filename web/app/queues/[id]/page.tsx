@@ -7,6 +7,7 @@ import { duration, millis } from "@/lib/format";
 import { QueueStats, reasons, starving } from "@/lib/health";
 import { Latency, Minute, Throughput } from "../../chart";
 import Config from "./config";
+import Failures from "./failures";
 import Schedules from "./schedules";
 
 export default function Queue({ params }: { params: Promise<{ id: string }> }) {
@@ -134,6 +135,9 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
 
       <h2>p95 duration, last hour</h2>
       <Latency series={series} />
+
+      <h2>what is failing</h2>
+      <Failures id={id} />
 
       <h2>jobs by status</h2>
       <div className="scroll">
