@@ -111,7 +111,7 @@ heartbeat, and marks itself `draining` and then `dead` on the way out. That last
 what the dashboard reads to tell you a queue has nobody to run it.
 
 `worker.Run` is the library underneath and the handlers are yours. `cmd/worker` carries
-a few trivial ones for smoke tests and benchmarks; `README.md` lists them.
+a few trivial ones for smoke tests and benchmarks; [README.md](README.md) lists them.
 
 ## Losing a worker
 
@@ -227,7 +227,8 @@ it works.
 
 ## Where to look next
 
-`SCHEMA.md` is the data model and why it is shaped that way. `DECISIONS.md` is the
-trade-offs, including the ones that were measured and reversed. `BENCHMARKS.md` is
-every number, with the hardware it came from. `API.md` is the endpoint reference.
-`DIAGRAMS.md` is generated from a live database by `make diagram`.
+[SCHEMA.md](SCHEMA.md) is the data model and why it is shaped that way.
+[DECISIONS.md](DECISIONS.md) is the trade-offs, including the ones that were measured
+and reversed. [BENCHMARKS.md](BENCHMARKS.md) is every number, with the hardware it came
+from. [API.md](API.md) is the endpoint reference. [DIAGRAMS.md](DIAGRAMS.md) is
+generated from a live database by `make diagram`.

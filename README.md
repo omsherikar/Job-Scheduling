@@ -2,9 +2,10 @@
 
 A job scheduler built on Postgres. Every state change is guarded by a fencing token, so a
 worker that was declared dead cannot report on a job that has moved on without it. Claiming
-reads a partial index over ready jobs, so its cost grows far more slowly than the table does:
-fifty times the rows costs under twice the reads, measured in `BENCHMARKS.md`. Jobs that reach
-a terminal state move to cold storage, which keeps the working set small as history grows.
+reads a partial index over ready jobs, so its cost grows far more slowly than the table
+does: fifty times the rows costs under twice the reads, measured in
+[BENCHMARKS.md](BENCHMARKS.md). Jobs that reach a terminal state move to cold storage,
+which keeps the working set small as history grows.
 
 Go services and a Next.js dashboard, with Postgres as the only coordination point.
 
@@ -12,13 +13,13 @@ Go services and a Next.js dashboard, with Postgres as the only coordination poin
 
 | | |
 |---|---|
-| `ARCHITECTURE.md` | the processes, the claim path, how a lost worker is handled |
-| `API.md` | all fifty endpoints, with roles, payloads and error semantics |
-| `SCHEMA.md` | the tables, the keys, and why the shape is what it is |
-| `DECISIONS.md` | the trade-offs, including the ones measured and reversed |
-| `BENCHMARKS.md` | what was measured, on what hardware, and what it means |
-| `TESTING.md` | what is covered, what is not, and how to run it |
-| `DIAGRAMS.md` | lifecycle and entity diagrams, generated from a live database |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | the processes, the claim path, how a lost worker is handled |
+| [API.md](API.md) | all fifty endpoints, with roles, payloads and error semantics |
+| [SCHEMA.md](SCHEMA.md) | the tables, the keys, and why the shape is what it is |
+| [DECISIONS.md](DECISIONS.md) | the trade-offs, including the ones measured and reversed |
+| [BENCHMARKS.md](BENCHMARKS.md) | what was measured, on what hardware, and what it means |
+| [TESTING.md](TESTING.md) | what is covered, what is not, and how to run it |
+| [DIAGRAMS.md](DIAGRAMS.md) | lifecycle and entity diagrams, generated from a live database |
 
 ## What you need
 
@@ -69,11 +70,11 @@ DATABASE_URL=... WORKER_QUEUE=<queue id> WORKER_CONCURRENCY=4 go run ./cmd/worke
 
 The binary ships three handlers for smoke tests and benchmarks: `noop` returns immediately,
 `sleep` waits for the milliseconds in its payload, and `fail` always errors. Real handlers are
-yours to write against `worker.Run`, which `ARCHITECTURE.md` covers.
+yours to write against `worker.Run`, which [ARCHITECTURE.md](ARCHITECTURE.md) covers.
 
 ## Configuration
 
-`.env.example` holds the full set. Only `DATABASE_URL` is always required.
+[.env.example](.env.example) holds the full set. Only `DATABASE_URL` is always required.
 
 | | |
 |---|---|
@@ -104,7 +105,7 @@ comma separated list. Without the second, only same origin streams are accepted.
 make diagram
 ```
 
-Reads a migrated database and rewrites `DIAGRAMS.md`: the job state machine out of
+Reads a migrated database and rewrites [DIAGRAMS.md](DIAGRAMS.md): the job state machine out of
 `job_transitions`, the entities out of the catalog. Neither is maintained by hand, so neither
 can drift from the schema it describes.
 
@@ -118,5 +119,5 @@ TEST_DATABASE_URL=postgres://fenceline:fenceline@localhost:5433/postgres go test
 ```
 
 Time is injectable: `set fl.testing = 'on'` and `set fl.now = '...'` move the clock,
-`set fl.jitter = 'off'` makes backoff deterministic. `TESTING.md` covers what the critical
-tests prove and where the coverage is thin.
+`set fl.jitter = 'off'` makes backoff deterministic. [TESTING.md](TESTING.md) covers
+what the critical tests prove and where the coverage is thin.

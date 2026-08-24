@@ -4,7 +4,7 @@ Thirty one tables, plus a daily partition each for events, logs and the three ar
 The shape follows one rule: the database holds the truth about a job, and every process that
 touches one is expected to crash at the worst possible moment.
 
-`DIAGRAMS.md` has the entity diagram and the job state machine, both generated from a
+[DIAGRAMS.md](DIAGRAMS.md) has the entity diagram and the job state machine, both generated from a
 live database by `make diagram`.
 
 ## Who owns what
@@ -97,9 +97,10 @@ names are a lookup table.
 Three denormalizations are deliberate, and each buys something specific.
 
 **`queue_shards.in_flight`** counts claimed and running jobs. It is derivable by counting
-the jobs, but deriving it on every claim means an index scan proportional to concurrency on the hottest
-path in the system. Holding the counter turns the concurrency cap into a single-row comparison.
-The cost is that it can drift if a process dies between reserving a slot and claiming it, always
+the jobs, but deriving it on every claim means an index scan proportional to concurrency
+on the hottest path in the system. Holding the counter turns the concurrency cap into a
+single-row comparison. The cost is that it can drift if a process dies between reserving
+a slot and claiming it, always
 in the safe direction (too high, so the queue admits fewer), and `fl.reconcile_in_flight()`
 repairs it.
 

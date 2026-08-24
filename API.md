@@ -160,7 +160,7 @@ can pass the check at once and overshoot a little. It bounds growth; it is not a
 invariant. Hitting it returns `429`.
 
 `shards` splits the concurrency counter across that many rows so admission is not one
-lock. Changing it while the queue holds a running job is a `409`. See `README.md`
+lock. Changing it while the queue holds a running job is a `409`. See [README.md](README.md)
 for when it is worth raising, which is later than you would think.
 
 A paused queue stops being claimed from immediately. Jobs already running finish.

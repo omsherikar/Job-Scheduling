@@ -2,7 +2,7 @@
 
 What was chosen, what it cost, and what was tried and thrown away. Every number here
 was measured on this codebase; the machine and settings are in the Numbers section of
-`README.md`.
+[README.md](README.md).
 
 ## Postgres is the only coordination point
 
@@ -77,7 +77,7 @@ which is not a bug you can live with.
 
 Sharding buys nothing at ordinary concurrency. At sixteen claimers the round trip
 dominates and the counter is not the bottleneck; past that the row lock becomes the
-limit and splitting it helps. `BENCHMARKS.md` has the throughput against shard count,
+limit and splitting it helps. [BENCHMARKS.md](BENCHMARKS.md) has the throughput against shard count,
 and the comparison against simply using more queues, which achieves the same effect by
 hand. Sharding is for when the work has to stay in one logical queue.
 

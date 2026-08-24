@@ -123,7 +123,7 @@ and the same races a second machine would, but it does not test network partitio
 between a worker host and the database.
 
 **Recovery time is measured, not asserted.** `kill -9` recovery was measured at 31.1 s,
-bounded by the lease. No test fails if that regresses; the number is in `README.md`
+bounded by the lease. No test fails if that regresses; the number is in [README.md](README.md)
 and would have to be re-measured to notice.
 
 ## Running one thing
