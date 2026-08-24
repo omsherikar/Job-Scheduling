@@ -2,10 +2,9 @@
 
 A job scheduler built on Postgres. Every state change is guarded by a fencing token, so a
 worker that was declared dead cannot report on a job that has moved on without it. Claiming
-reads a partial index over ready jobs, so what it costs does not follow the size of the table:
-measured at 54 buffers whether the table holds twenty thousand rows or ten million. Jobs that
-reach a terminal state move to cold storage, which bounds the footprint rather than the
-latency.
+reads a partial index over ready jobs, so what it costs barely follows the size of the table:
+fifty times the rows costs under twice the reads, and the numbers are below. Jobs that reach a
+terminal state move to cold storage, which bounds the footprint rather than the latency.
 
 ## Running it
 
@@ -159,7 +158,9 @@ Measured on PostgreSQL 17.11 in docker on an 8 core, 8 GB laptop, `shared_buffer
 as the result and the absolute figures as this machine.
 
 **Claim latency against table size.** Server-side execution of the claim, batch 50, everything
-but the row count held identical and the transaction rolled back between repetitions:
+but the row count held identical and the transaction rolled back between repetitions. Taken
+before the buffer and planner settings above were raised, at `shared_buffers=128MB` and
+`random_page_cost=4`:
 
 | rows in `jobs` | table size | claim | candidate select |
 |---|---|---|---|
@@ -168,10 +169,14 @@ but the row count held identical and the transaction rolled back between repetit
 | 1,000,000 | 392 MB | 5.94 ms | 54 buffers |
 | 10,000,000 | 3,919 MB | 5.79 ms | 54 buffers |
 
-Five hundred times the rows for twenty six percent more work, and the candidate select reads
-the same fifty four buffers throughout, because `idx_jobs_claimable` is partial on `queued`
-and does not grow with the table. It holds with the archiver switched off; archiving bounds
-the footprint, not this.
+Five hundred times the rows for twenty six percent more work, and under those controlled
+repetitions the candidate select read the same fifty four buffers throughout, because
+`idx_jobs_claimable` is partial on `queued` and does not grow with the table. It holds with
+the archiver switched off; archiving bounds the footprint, not this.
+
+A single cold run on the settings above reads 54 buffers at twenty thousand rows and 104 at a
+million — fifty times the rows for under twice the reads. Sublinear rather than flat once the
+repetitions stop hiding the cold index descent, which is the honest version of the same claim.
 
 **Enqueue to start**, 200 jobs arriving 15 ms apart, concurrency 8, one second poll:
 
@@ -192,8 +197,25 @@ a queue keeps of what is in flight is never lower than what is actually running;
 left high by a connection dying between reserving a slot and claiming it, and
 `fl.reconcile_in_flight` restores it exactly.
 
-Not yet measured: time to recover after `kill -9` of k workers, and WAL bytes and database
-CPU per million jobs.
+**Recovery after `kill -9`.** Four worker processes holding sixteen jobs with open executions,
+killed outright, reaper every half second, default thirty second lease: **31.1 s** until every
+job was runnable again, all sixteen executions closed as `lost`, no lease orphaned and no
+counter drift. Recovery is bounded by the lease, not by how the worker died; a shorter lease
+recovers sooner and costs more heartbeats.
+
+**Cost per job**, two thousand jobs claimed, run and completed at concurrency 8, on an
+otherwise idle database with the statistics reset first:
+
+| | per job | per million |
+|---|---|---|
+| WAL written | 4,824 bytes | 4.8 GB |
+| database active time | 3.25 ms | 0.9 cpu-hours |
+| commits | 1.33 | 1.33 M |
+
+Most of that one and a third commits is starting the attempt, which is the one step still done
+a job at a time: claiming takes two commits but spreads them over everything it claims, and
+reporting spreads one over the batch it reports. The WAL figure is a steady-state one — a cold
+run pays several times that in full-page images right after a checkpoint.
 
 ## Testing
 
