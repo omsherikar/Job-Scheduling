@@ -248,6 +248,10 @@ fired, which is a different thing from it working.
 `make diagram` prints the state machine and the schema as mermaid, read from `job_transitions`
 and the catalog rather than kept up to date by hand.
 
+`SCHEMA.md` explains the tables: what the keys are, which deletes cascade and which refuse,
+where the design is deliberately denormalized and what that buys, and why the claim index is
+partial.
+
 ## Testing
 
 Tests need a running Postgres and `TEST_DATABASE_URL`. Each test clones its own database from
