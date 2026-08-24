@@ -9,6 +9,74 @@ which keeps the working set small as history grows.
 
 Go services and a Next.js dashboard, with Postgres as the only coordination point.
 
+## What it does
+
+**Submitting work**
+
+| | |
+|---|---|
+| immediate | `POST /queues/{id}/jobs` and a worker claims it on the next poll or notify |
+| delayed | set `run_at` and it waits in `scheduled` until the promoter releases it |
+| recurring | five field cron with an IANA timezone, one job per tick however many schedulers run |
+| batch | up to 1000 jobs in one transaction, with a batch progress endpoint |
+| dependent | `depends_on` holds a job until every parent finishes, cycles rejected at submission |
+| idempotent | an `Idempotency-Key` per queue, honoured for 24 hours |
+
+**Not losing work**
+
+| | |
+|---|---|
+| fencing tokens | every write carries the fence it claimed under, so a stale worker changes nothing |
+| leases and a reaper | recovery is bounded by the lease, not by noticing a worker died |
+| retry policies | fixed, linear or exponential backoff, with jitter and an attempt ceiling |
+| snooze | a handler can defer a job without burning an attempt |
+| dead letter queue | exhausted jobs keep their full attempt history, replayable one at a time or in bulk |
+| circuit breaker | a failing queue stops itself and probes one job at a time while half open |
+| transactional outbox | events are written in the same transaction as the state change |
+| archiver | terminal jobs and their ledger move to cold tables instead of being deleted |
+
+**Controlling throughput**
+
+| | |
+|---|---|
+| per queue concurrency | a hard cap enforced in the database, not in the worker |
+| rate limiting | a token bucket applied in the claim gate |
+| shards | split the concurrency counter across rows when one row becomes the limit |
+| priority and aging | higher priority first, with a sweep that lifts jobs that have waited too long |
+| depth cap | an advisory bound on how much can be queued at once |
+| pause and resume | per queue and per schedule, without deleting anything |
+
+**Running jobs**
+
+| | |
+|---|---|
+| worker library | `worker.Run` takes your handlers; the binary carries three for smoke tests |
+| capability routing | a worker claims only the job types it announced, so new types can be enqueued early |
+| lease extension | long jobs keep their lease and report progress on the heartbeat |
+| graceful drain | SIGTERM finishes what is running and releases the rest |
+| batched completion | completions are grouped to cut round trips |
+
+**Seeing what happened**
+
+| | |
+|---|---|
+| execution ledger | one row per attempt, never overwritten, with per attempt logs |
+| event stream | websocket or cursor paging, with gap detection and replay from an id |
+| queue health | depth by priority tier, live workers, saturation, breaker state, last hour outcomes |
+| metrics | per minute throughput and duration percentiles from a rollup, not from the ledger |
+| operational views | queue age, fenced write count, and reaper lag, read from the database |
+| audit log | every privileged mutation records who did what to which entity |
+| failure summaries | recent failures grouped by error class, with a written summary when a key is set |
+| dashboard | queues, job explorer, workers, dead letter, and the live event stream |
+
+**Access**
+
+| | |
+|---|---|
+| accounts | argon2id passwords, sessions as rows so logout revokes |
+| tenancy | users, organizations, projects, queues, checked by join on every request |
+| roles | owner, admin, member and viewer, held per organization |
+
 ## The rest of the documentation
 
 | | |
