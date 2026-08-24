@@ -109,21 +109,33 @@ Go services and a Next.js dashboard, with Postgres as the only coordination poin
 Docker and Go 1.25, plus Node 22 if you want the dashboard. Those are the versions CI
 builds against.
 
-## Setting it up
+On Windows the services and the dashboard run fine, but `make` and the shell used
+throughout the docs do not. Use WSL2 and everything below works unchanged. The native
+PowerShell route is in [RUNBOOK.md](RUNBOOK.md).
 
-Postgres runs in docker on 5433.
+## Quick setup
 
 ```
+git clone https://github.com/shrutu0929/Job-Scheduling.git
+cd Job-Scheduling
+
 make db-up
 make migrate
 make check
 ```
 
-`make db-up` waits for the container to accept connections, `make migrate` applies every
-migration in order, and `make check` runs format, vet, build and the test suite.
+Postgres comes up in docker on 5433. `make db-up` waits for it to accept connections,
+`make migrate` applies every migration in order, and `make check` runs format, vet,
+build and the test suite. Migrations are embedded in the binaries and take an advisory
+lock, so two of them running at once is safe.
 
-Migrations are embedded in the binaries and take an advisory lock, so two of them running at
-once is safe.
+That gets the repository building against a real database, which is as far as setup
+goes. Running the system is a separate thing, and it does not start with the services:
+a worker needs a queue to claim from before it can start at all.
+
+[RUNBOOK.md](RUNBOOK.md) is a self-contained walkthrough that does all of it from the
+database up, with the output you should see at each step. The sections below are the
+reference for the pieces it uses.
 
 ## Configuration
 

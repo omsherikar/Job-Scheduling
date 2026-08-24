@@ -7,6 +7,9 @@ needs docker, Go, `curl`, `jq`, `psql`, and Node if you want the dashboard.
 Everything here is local and disposable. The credentials below are throwaway values
 for a development database on your own machine.
 
+The commands assume a POSIX shell. On macOS and Linux they were run as written. On
+Windows, see [Windows](#windows) at the end before starting.
+
 ## Use `go build`, not `go run`
 
 `go run` compiles to a temporary binary and executes that, so the running process is
@@ -374,3 +377,99 @@ make migrate
 | jobs stay `queued` | no worker, or the worker has no handler for that type |
 | jobs stay `scheduled` | `run_at` is in the future, or a dependency has not finished |
 | dashboard shows nothing | no project selected, or the api is not on 3001 |
+
+## Windows
+
+The Go services and the dashboard run on Windows. All six binaries cross-compile clean
+for `GOOS=windows` and `go vet` passes. What does not work is the tooling this
+walkthrough uses: `make` is not present by default, and the Makefile, this document,
+and the teardown steps are all POSIX shell.
+
+### WSL2
+
+Install WSL2 with a distribution of your choice, install Docker Desktop with WSL2
+integration enabled, then clone and follow this document from the top with nothing
+changed. Docker Desktop shares the daemon, so `make db-up` reaches the same engine and
+`localhost:5433` resolves from both sides.
+
+This is the route to take.
+
+### Native PowerShell
+
+If you would rather not use WSL2, the substitutions below cover every command in this
+document. Docker Desktop, Go and Node all work natively; only the shell differs.
+
+**These were written from the documented behaviour of the cmdlets, not executed.**
+Everything else in this file was run and its output pasted. This section was not,
+because the machine it was written on has no Windows.
+
+| this document | PowerShell |
+|---|---|
+| `export VAR=value` | `$env:VAR = "value"` |
+| `VAR=$(command)` | `$VAR = command` |
+| `/tmp/fl-api` | `"$env:TEMP\fl-api.exe"` |
+| `go build -o /tmp/fl-api ./cmd/api` | `go build -o "$env:TEMP\fl-api.exe" ./cmd/api` |
+| `/tmp/fl-api > /tmp/api.log 2>&1 &` | `Start-Process "$env:TEMP\fl-api.exe" -RedirectStandardOutput "$env:TEMP\api.log" -RedirectStandardError "$env:TEMP\api.err"` |
+| `pkill -f "/tmp/fl-"` | `Get-Process fl-api,fl-scheduler,fl-worker -ErrorAction SilentlyContinue \| Stop-Process` |
+| `lsof -i :3001` | `Get-NetTCPConnection -LocalPort 3001` |
+| `curl -s ... \| jq -r .token` | `(Invoke-RestMethod ...).token` |
+| `until ...; do sleep 1; done` | `do { Start-Sleep 1 } until (...)` |
+
+`make` has no default Windows equivalent. Run the underlying commands instead:
+
+| target | what it runs |
+|---|---|
+| `make db-up` | `docker compose up -d postgres`, then wait for `pg_isready` |
+| `make migrate` | `go run ./cmd/migrate` |
+| `make check` | `gofmt -l .`, `go vet ./...`, `go build ./...`, `go test -race ./...` |
+| `make diagram` | `go run ./cmd/diagram` |
+
+Step 3 is the one worth rewriting rather than translating line by line, because
+`Invoke-RestMethod` parses JSON into objects and removes the need for `jq`:
+
+```powershell
+$A = "http://localhost:3001"
+$body = @{ email = "demo@example.com"; password = "demo-password" } | ConvertTo-Json
+
+Invoke-RestMethod -Method Post "$A/auth/register" -Body $body -ContentType application/json
+$token = (Invoke-RestMethod -Method Post "$A/auth/login" -Body $body -ContentType application/json).token
+$h = @{ Authorization = "Bearer $token" }
+
+$org = (Invoke-RestMethod -Method Post "$A/orgs" -Headers $h `
+  -Body (@{ name = "demo org" } | ConvertTo-Json) -ContentType application/json).id
+
+$proj = (Invoke-RestMethod -Method Post "$A/orgs/$org/projects" -Headers $h `
+  -Body (@{ name = "demo project" } | ConvertTo-Json) -ContentType application/json).id
+
+$pol = (Invoke-RestMethod -Method Post "$A/projects/$proj/retry-policies" -Headers $h `
+  -Body (@{ name = "standard"; kind = "exponential"; max_attempts = 3
+            base_delay_ms = 500; max_delay_ms = 5000 } | ConvertTo-Json) `
+  -ContentType application/json).id
+
+$queue = (Invoke-RestMethod -Method Post "$A/projects/$proj/queues" -Headers $h `
+  -Body (@{ name = "demo"; retry_policy_id = $pol; max_concurrency = 4 } | ConvertTo-Json) `
+  -ContentType application/json).id
+
+"project $proj"
+"queue   $queue"
+```
+
+Then the worker, which needs the queue id from above:
+
+```powershell
+$env:WORKER_QUEUE = $queue
+$env:WORKER_CONCURRENCY = "4"
+Start-Process "$env:TEMP\fl-worker.exe" -RedirectStandardOutput "$env:TEMP\worker.log" `
+  -RedirectStandardError "$env:TEMP\worker.err"
+```
+
+`psql` is not installed with Docker Desktop. Either install the Postgres client tools,
+or run queries inside the container:
+
+```powershell
+docker compose exec -T postgres psql -U fenceline -d fenceline -c "select status, count(*) from jobs group by status"
+```
+
+`Ctrl+C` reaches a service as SIGINT rather than SIGTERM. The services handle both, so
+a worker still drains. `Start-Process` detaches, so a service outlives the shell that
+started it; stop them with `Stop-Process` rather than by closing the window.
