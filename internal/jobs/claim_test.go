@@ -2,6 +2,7 @@ package jobs_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	"github.com/shrutu0929/fenceline/internal/jobs"
 	"github.com/shrutu0929/fenceline/internal/testdb"
 )
+
+const claimBufferCeiling = 400
 
 func seedJobs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID, queueID, policyID uuid.UUID, n int) {
 	t.Helper()
@@ -443,5 +446,62 @@ func TestClaimAllTypesWhenUnset(t *testing.T) {
 	testdb.Must(t, err)
 	if len(claimed) != 1 {
 		t.Fatalf("claimed = %d, want 1", len(claimed))
+	}
+}
+
+func TestClaimBufferCeiling(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.New(t)
+
+	projectID, policyID := testdb.Base(t, ctx, pool)
+	queueID := testdb.NewQueue(t, ctx, pool, projectID, policyID, 1000)
+	seedJobs(t, ctx, pool, projectID, queueID, policyID, 20000)
+
+	tx, err := pool.Begin(ctx)
+	testdb.Must(t, err)
+	_, err = tx.Exec(ctx, "set local statement_timeout = '180s'")
+	testdb.Must(t, err)
+	_, err = tx.Exec(ctx, `insert into jobs
+		(project_id, queue_id, type, retry_policy_id, status, run_at, finished_at)
+		select $1, $2, 'noop', $3, 'completed', fl.now(), fl.now() from generate_series(1, 980000)`,
+		projectID, queueID, policyID)
+	testdb.Must(t, err)
+	testdb.Must(t, tx.Commit(ctx))
+
+	_, err = pool.Exec(ctx, `vacuum analyze jobs`)
+	testdb.Must(t, err)
+
+	var rows int
+	testdb.Must(t, pool.QueryRow(ctx, `select count(*) from jobs`).Scan(&rows))
+	if rows < 1000000 {
+		t.Fatalf("rows = %d, want at least 1000000", rows)
+	}
+
+	sql := fmt.Sprintf(`explain (analyze, buffers, format json)
+		select j.id from jobs j
+		where j.queue_id = '%s' and j.status = 'queued' and j.run_at <= fl.now()
+		order by j.priority desc, j.run_at asc, j.id asc
+		for update skip locked
+		limit 50`, queueID)
+
+	var plan []struct {
+		Plan struct {
+			SharedHit  int `json:"Shared Hit Blocks"`
+			SharedRead int `json:"Shared Read Blocks"`
+		} `json:"Plan"`
+	}
+	var raw []byte
+	testdb.Must(t, pool.QueryRow(ctx, sql).Scan(&raw))
+	testdb.Must(t, json.Unmarshal(raw, &plan))
+	if len(plan) != 1 {
+		t.Fatalf("plans = %d, want 1", len(plan))
+	}
+
+	buffers := plan[0].Plan.SharedHit + plan[0].Plan.SharedRead
+	if buffers > claimBufferCeiling {
+		t.Errorf("buffers = %d, want <= %d", buffers, claimBufferCeiling)
+	}
+	if strings.Contains(string(raw), "Seq Scan") {
+		t.Errorf("plan has a seq scan:\n%s", raw)
 	}
 }

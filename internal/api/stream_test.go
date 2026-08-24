@@ -104,9 +104,15 @@ func TestStreamLive(t *testing.T) {
 		t.Fatalf("events = %d, want 1", len(first.Events))
 	}
 
+	emitN(t, ctx, pool, ten.projectID, "warm", 1)
+	notify(t, ctx, pool)
+	warm := read(t, ctx, conn)
+	if len(warm.Events) != 1 {
+		t.Fatalf("events = %d, want 1", len(warm.Events))
+	}
+
 	emitN(t, ctx, pool, ten.projectID, "second", 1)
-	_, err := pool.Exec(ctx, `select pg_notify('fl_events', '')`)
-	testdb.Must(t, err)
+	notify(t, ctx, pool)
 
 	start := time.Now()
 	next := read(t, ctx, conn)
@@ -119,9 +125,15 @@ func TestStreamLive(t *testing.T) {
 	if next.Events[0].Topic != "second" {
 		t.Errorf("topic = %q, want second", next.Events[0].Topic)
 	}
-	if next.PrevID != first.Next {
-		t.Errorf("prev_id = %d, want %d", next.PrevID, first.Next)
+	if next.PrevID != warm.Next {
+		t.Errorf("prev_id = %d, want %d", next.PrevID, warm.Next)
 	}
+}
+
+func notify(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `select pg_notify('fl_events', '')`)
+	testdb.Must(t, err)
 }
 
 func TestStreamResume(t *testing.T) {

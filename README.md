@@ -217,6 +217,24 @@ a job at a time: claiming takes two commits but spreads them over everything it 
 reporting spreads one over the batch it reports. The WAL figure is a steady-state one — a cold
 run pays several times that in full-page images right after a checkpoint.
 
+## Watching it
+
+Three views expose the operational numbers, so they come from the database rather than
+from counters that go wrong after a crash or disagree between instances:
+
+| view | what it answers |
+|---|---|
+| `fl.queue_age` | oldest ready job age per queue, broken out per priority tier |
+| `fl.fenced_writes` | how many times the fence has actually rejected a write |
+| `fl.reaper_lag` | how far behind the reaper is on leases that have already expired |
+
+Age is the latency SLI; depth tells an operator nothing about whether a queue is moving. The
+fenced write count is worth publishing because a zero there means the mechanism has never
+fired, which is a different thing from it working.
+
+`make diagram` prints the state machine and the schema as mermaid, read from `job_transitions`
+and the catalog rather than kept up to date by hand.
+
 ## Testing
 
 Tests need a running Postgres and `TEST_DATABASE_URL`. Each test clones its own database from

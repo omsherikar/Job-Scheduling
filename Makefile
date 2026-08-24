@@ -1,4 +1,4 @@
-.PHONY: db-up db-down migrate test build fmt vet check web web-build
+.PHONY: db-up db-down migrate test build fmt vet check web web-build diagram
 
 db-up:
 	docker compose up -d postgres
@@ -32,5 +32,8 @@ web:
 
 web-build:
 	cd web && npm install && npm run build
+
+diagram:
+	go run ./cmd/diagram
 
 check: fmt vet build test
