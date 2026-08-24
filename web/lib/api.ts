@@ -1,5 +1,6 @@
 const tokenKey = "fl.token";
 const projectKey = "fl.project";
+const timeoutMs = 10000;
 
 export function token(): string | null {
   if (typeof window === "undefined") return null;
@@ -27,16 +28,42 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (t) headers.set("Authorization", `Bearer ${t}`);
   if (init.body) headers.set("Content-Type", "application/json");
 
-  const res = await fetch(`/api${path}`, { ...init, headers, cache: "no-store" });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      ...init,
+      headers,
+      cache: "no-store",
+      signal: init.signal ?? AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new Error(`${path} timed out after ${timeoutMs / 1000}s`);
+    }
+    throw new Error(`cannot reach the api: ${path}`);
+  }
+
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
+  }
 
   if (!res.ok) {
     if (res.status === 401 && t) {
       setToken(null);
       window.location.href = "/login";
     }
-    throw new Error(body?.detail ?? body?.title ?? res.statusText);
+    const problem = body as { detail?: string; title?: string } | null;
+    throw new Error(
+      problem?.detail ??
+        problem?.title ??
+        `${res.status} ${res.statusText || "request failed"}`,
+    );
   }
   return body as T;
 }

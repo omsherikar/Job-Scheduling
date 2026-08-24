@@ -9,6 +9,7 @@ import { Latency, Minute, Throughput } from "../../chart";
 import Config from "./config";
 import Failures from "./failures";
 import Schedules from "./schedules";
+import { poll } from "@/lib/poll";
 
 export default function Queue({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -31,9 +32,7 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
   };
 
   useEffect(() => {
-    load();
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
+    return poll(load, 5000);
   }, [id]);
 
   if (error) return <div className="error">{error}</div>;

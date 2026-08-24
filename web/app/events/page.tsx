@@ -12,12 +12,21 @@ export default function Events() {
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [state, setState] = useState<StreamState>("connecting");
   const [gaps, setGaps] = useState(0);
+  const [blocked, setBlocked] = useState("");
   const seen = useRef(0);
 
   useEffect(() => {
     const p = project();
     const t = token();
-    if (!p || !t) return;
+    if (!t) {
+      setBlocked("not signed in");
+      return;
+    }
+    if (!p) {
+      setBlocked("no project selected");
+      return;
+    }
+    setBlocked("");
 
     return openStream(p, t, {
       onEvents: (batch) => {
@@ -30,6 +39,15 @@ export default function Events() {
   }, []);
 
   const label = state === "live" ? "ok" : state === "gap" ? "bad" : "warn";
+
+  if (blocked) {
+    return (
+      <>
+        <h1>event stream</h1>
+        <div className="error">{blocked}</div>
+      </>
+    );
+  }
 
   return (
     <>

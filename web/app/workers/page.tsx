@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { get, project } from "@/lib/api";
 import { ago } from "@/lib/format";
+import { poll } from "@/lib/poll";
 
 type Worker = {
   id: string;
@@ -31,9 +32,7 @@ export default function Workers() {
         })
         .catch((err) => setError(err instanceof Error ? err.message : "load failed"));
 
-    load();
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
+    return poll(load, 5000);
   }, []);
 
   const stale = (seen: string) => Date.now() - new Date(seen).getTime() > 30000;

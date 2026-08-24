@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { get, project } from "@/lib/api";
 import { duration } from "@/lib/format";
 import { QueueHealth, oldestReady, reasons } from "@/lib/health";
+import { poll } from "@/lib/poll";
 
 export default function Queues() {
   const [stats, setStats] = useState<QueueHealth[]>([]);
@@ -24,9 +25,7 @@ export default function Queues() {
       }
     };
 
-    load();
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
+    return poll(load, 5000);
   }, []);
 
   return (

@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { get, post } from "@/lib/api";
 import { clock, millis } from "@/lib/format";
+import { poll } from "@/lib/poll";
 
 type Job = {
   id: string;
@@ -71,9 +72,7 @@ export default function JobDetail({ params }: { params: Promise<{ id: string }> 
   };
 
   useEffect(() => {
-    load();
-    const timer = setInterval(load, 3000);
-    return () => clearInterval(timer);
+    return poll(load, 3000);
   }, [id]);
 
   if (error) return <div className="error">{error}</div>;

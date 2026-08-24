@@ -115,7 +115,11 @@ rather than against the API.
 
 **The dashboard has no end-to-end test.** The 15 vitest cases cover the health
 derivations (what counts as saturated, starved, or rate limited), because that is the
-logic with real branching. Rendering is not tested.
+logic with real branching. Nothing renders a component or drives a browser, so the
+error paths in `lib/api.ts` and `lib/stream.ts`, the polling behaviour, and the Next
+error boundaries are reasoned about rather than exercised. CI runs `typecheck`, the
+unit tests, and a production build, which catches a broken build but not a broken
+page.
 
 **Multi-node behaviour is simulated, not distributed.** Concurrency tests run many
 goroutines and many connections against one Postgres. That exercises the same locks

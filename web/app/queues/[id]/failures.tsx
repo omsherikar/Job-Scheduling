@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { get } from "@/lib/api";
+import { poll } from "@/lib/poll";
 
 type Group = {
   error_class: string;
@@ -41,9 +42,7 @@ export default function Failures({ id }: { id: string }) {
         setError(err instanceof Error ? err.message : "load failed");
       }
     };
-    load();
-    const timer = setInterval(load, 30000);
-    return () => clearInterval(timer);
+    return poll(load, 30000);
   }, [id]);
 
   if (error) return <div className="error">{error}</div>;

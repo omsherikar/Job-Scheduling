@@ -15,7 +15,7 @@ type Frame = {
   events?: StreamEvent[];
 };
 
-export type StreamState = "connecting" | "live" | "polling" | "gap";
+export type StreamState = "connecting" | "live" | "reconnecting" | "gap";
 
 type Handlers = {
   onEvents: (events: StreamEvent[]) => void;
@@ -48,7 +48,12 @@ export function openStream(projectId: string, token: string, h: Handlers): () =>
     };
 
     socket.onmessage = (ev) => {
-      const frame = JSON.parse(ev.data) as Frame;
+      let frame: Frame;
+      try {
+        frame = JSON.parse(ev.data) as Frame;
+      } catch {
+        return;
+      }
 
       if (frame.type === "cursor_too_old") {
         cursor = frame.oldest_available ? frame.oldest_available - 1 : 0;
@@ -74,9 +79,9 @@ export function openStream(projectId: string, token: string, h: Handlers): () =>
 
     socket.onclose = () => {
       if (closed) return;
-      h.onState("polling");
+      h.onState("reconnecting");
       retry = Math.min(retry + 1, 5);
-      timer = setTimeout(connect, retry * 1000);
+      timer = setTimeout(connect, retry * 1000 + Math.random() * 500);
     };
 
     socket.onerror = () => socket?.close();
