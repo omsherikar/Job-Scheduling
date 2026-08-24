@@ -75,20 +75,11 @@ which is not a bug you can live with.
 
 **Chosen:** `queues.shards` splits the counter across N rows, default 1.
 
-Sharding buys nothing at ordinary concurrency:
-
-| concurrent claimers | shards=1 | shards=2 | shards=4 | shards=8 |
-|---|---|---|---|---|
-| 16 | 1455/s | 1189/s | 1437/s | 1554/s |
-| 128 | 410/s | 485/s | 707/s | 989/s |
-
-At sixteen claimers the round trip dominates and the counter is not the bottleneck. At
-a hundred and twenty eight it is, and eight shards carry about two and a half times the
-admissions. A second run of the same measurement gave 265, 595, 694 and 1159, so the
-multiplier varies between runs even though the ordering holds.
-
-Multiple queues already gave 4.8 times the throughput of one, which is the manual
-version of the same idea. Sharding is for when you want one logical queue.
+Sharding buys nothing at ordinary concurrency. At sixteen claimers the round trip
+dominates and the counter is not the bottleneck; past that the row lock becomes the
+limit and splitting it helps. `BENCHMARKS.md` has the throughput against shard count,
+and the comparison against simply using more queues, which achieves the same effect by
+hand. Sharding is for when the work has to stay in one logical queue.
 
 **What it costs:** a table, a column on `jobs`, and a rule that `shards` cannot change
 while the queue holds a running job. That rule exists because the first version did

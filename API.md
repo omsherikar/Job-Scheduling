@@ -40,6 +40,9 @@ anything an admin can, and so on down.
 A request below the required role gets `403`. A request for something outside your
 organizations gets `404` rather than `403`, so existence is not leaked to non-members.
 
+Every privileged mutation writes an audit row naming the actor, the action, and the
+entity.
+
 ## Errors
 
 ```json
@@ -162,6 +165,9 @@ for when it is worth raising, which is later than you would think.
 
 A paused queue stops being claimed from immediately. Jobs already running finish.
 
+A queue also stops on its own when its circuit breaker trips, and probes one job at a
+time while half open until it either reopens or trips again.
+
 ## Submitting jobs
 
 | method | path | role |
@@ -186,8 +192,12 @@ Only `type` is required. Omit `run_at` and it runs now; set it and the job sits 
 until every parent has finished, whatever `run_at` says.
 
 Send an `Idempotency-Key` header and a repeat of the same key on the same queue
-returns the original job instead of making a second one. The key is unique per queue,
-not globally, so two teams can use `order-1234` without colliding.
+returns the original job instead of making a second one. Replaying a key with a
+different payload is a `409`. Keys are honoured for 24 hours and are unique per queue
+rather than globally, so two teams can use `order-1234` without colliding.
+
+A job with `depends_on` is created `scheduled` with a pending count and becomes
+runnable once every parent has finished. Cycles are rejected at submission.
 
 The batch endpoint takes `{"jobs": [...]}`, at most 1000, and inserts them in one
 transaction. `GET /batches/{id}` reports how a batch is progressing.
@@ -215,9 +225,14 @@ as fast as page 1 and rows do not shift under you while you page.
 each attempt, its dependencies, and its dependents. Nothing is overwritten on retry,
 so attempt 1's failure is still there after attempt 4 succeeds.
 
+`GET /jobs/{id}` also carries the live lease with whatever progress the handler last
+reported on its heartbeat.
+
 `cancel` is a compare-and-swap: it returns `409` if the job already reached a terminal
-state. Cancelling a running job closes its execution, drops its lease, and releases
-its concurrency slot; the worker's next write is fenced.
+state. Against a running job it is best effort in the sense that the handler is not
+interrupted: the API closes the execution, drops the lease, and releases the
+concurrency slot, and the worker finds out on its next heartbeat. Its next write is
+fenced either way.
 
 `retry` moves a `retry_wait` or `scheduled` job to `queued` immediately, skipping the
 rest of its backoff. It refuses if dependencies are still outstanding.
@@ -231,6 +246,12 @@ rest of its backoff. It refuses if dependencies are still outstanding.
 | POST | `/queues/{id}/dlq/replay` | member |
 | GET | `/queues/{id}/failure-summary` | viewer |
 
+A handler that returns an error burns an attempt and the job comes back after the
+policy's backoff. A handler that returns `worker.Snooze{After: d}` does not: the fence
+moves, the attempt count does not, and the job comes back after `d`, clamped to the
+policy's `max_delay_ms`. Snoozing is capped by `max_attempts` so a job cannot be parked
+forever.
+
 A dead-lettered job keeps its full attempt history in `execution_history`.
 
 Replaying one resets `attempt_count`, bumps `replay_generation`, and queues it. If the
@@ -238,13 +259,36 @@ job had descendants that were cancelled when it died, the replay is refused with
 list of ids, because reviving a parent without its children would leave a half-run
 graph.
 
-Bulk replay takes `{"limit": 100, "rate_per_sec": 10}` and staggers `run_at` so a
-drained dead letter queue does not immediately flood the live one.
+Bulk replay takes `{"limit": 100, "rate_per_sec": 10}`, stops at the queue's depth cap,
+staggers `run_at` so a drained dead letter queue does not immediately flood the live
+one, and skips any parent whose descendants were cancelled.
 
 `failure-summary` groups the last day of failures by error class and, if the scheduler
-has an `ANTHROPIC_API_KEY`, includes a written summary. The grouping is always there;
-only the prose depends on the key. `state` is `current`, `stale`, `pending`, or
-`unavailable`.
+has an `ANTHROPIC_API_KEY`, includes a written summary:
+
+```json
+{
+  "window_hours": 24,
+  "failures": [
+    {"error_class": "timeout", "count": 90, "distinct_messages": 2,
+     "latest_message": "context deadline exceeded", "last_seen": "..."}
+  ],
+  "summary": "Nearly every failure is a timeout against the billing host ...",
+  "model": "claude-opus-5",
+  "state": "current"
+}
+```
+
+The grouping is computed on request. The summary is not: the scheduler writes it every
+few minutes for queues whose failures have changed, because a model call is too slow and
+too expensive to sit on an endpoint the dashboard polls. `state` says what you are
+looking at. `current` means the summary matches the failures beside it, `stale` means
+new failures have arrived since it was written, `pending` means one is coming, and
+`unavailable` means the scheduler has no key and none will be written. The table comes
+back in every case; only the prose depends on the key.
+
+Job error text can contain anything a handler chose to put in it, so the prompt states
+that the ledger is data to describe and not instructions to follow.
 
 ## Schedules
 
@@ -270,9 +314,10 @@ only the prose depends on the key. `state` is `current`, `stale`, `pending`, or
 }
 ```
 
-Five-field cron. The timezone is a foreign key to a table seeded from
-`pg_timezone_names`, so a schedule that Postgres cannot interpret cannot be stored.
-The failure happens at creation rather than at three in the morning six weeks later.
+Five-field cron. The expression and the timezone are both validated when you write
+them, not when the tick is due, and `next_run_at` comes back computed. The timezone is
+a foreign key to a table seeded from `pg_timezone_names`, so a schedule Postgres cannot
+interpret is rejected at creation.
 
 `0 3 * * *` in `America/New_York` fires at 3am local across daylight saving
 transitions, not at a fixed UTC offset.
@@ -305,9 +350,14 @@ new WebSocket(url, [`fl.token.${token}`])
 Origins must be in `API_ALLOWED_ORIGINS`. Without it, only same-origin connections are
 accepted.
 
-Reconnect with the last id you saw and you get everything since. The stream falls back
-to a two-second poll if `pg_notify` is not arriving, so a missed notification costs
-latency and not events.
+Frames carry `prev_id`, so a client can detect a gap without trusting the server.
+Reconnect with the last id you saw and you get everything since; a cursor older than
+the retention window is rejected with `cursor_too_old` and the oldest id still
+available. The stream falls back to a two-second poll if `pg_notify` is not arriving,
+so a missed notification costs latency and not events.
+
+Event ids are ordered by commit within a project, not globally, so a tailer filtered to
+one project sees a contiguous sequence.
 
 ## Fleet and metrics
 

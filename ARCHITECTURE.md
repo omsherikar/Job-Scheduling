@@ -100,6 +100,19 @@ left too high and the queue admits fewer jobs than it could until
 `fl.reconcile_in_flight()` repairs it. The drift is always in the safe direction, and
 that is deliberate: a counter that drifts low would admit past the cap.
 
+## What a worker announces
+
+A worker registers itself against one queue and announces the job types it has handlers
+for. It claims only those, which is what makes it safe to enqueue a new type before the
+workers that run it are deployed: the jobs wait in `queued` instead of failing.
+
+While running it extends its lease, carries whatever progress the handler reports on the
+heartbeat, and marks itself `draining` and then `dead` on the way out. That last part is
+what the dashboard reads to tell you a queue has nobody to run it.
+
+`worker.Run` is the library underneath and the handlers are yours. `cmd/worker` carries
+a few trivial ones for smoke tests and benchmarks; `README.md` lists them.
+
 ## Losing a worker
 
 Nothing asks a worker whether it is alive. A lease has an `expires_at`, and the reaper
@@ -130,11 +143,14 @@ execution but never a duplicate completion.
 
 State changes and their events are written in the same transaction. `fl.emit` takes a
 per-project advisory lock before inserting, so events for one project are totally
-ordered by id, and the notifier only has to tell listeners that the tail moved.
+ordered by id, and the notifier only has to tell listeners that the tail moved. The
+notification carries no payload and several events collapse into one, so a busy project
+does not turn into a notification storm.
 
 The lock is per project rather than global because a global one serialised every write
 in the system. Per project, two projects never wait on each other, and within a
-project the ordering that consumers actually care about still holds.
+project the ordering that consumers actually care about still holds. The cost falls
+only on a project busy enough to contend with itself.
 
 ## The order locks are taken in
 
@@ -193,8 +209,25 @@ None of them is required for correctness on a short horizon. If the scheduler is
 jobs stop being promoted and leases stop being reaped, but nothing is lost and nothing
 is double-run. It catches up when it returns.
 
+## Watching it
+
+Three views expose the operational numbers, so they come from the database instead of
+from counters that go wrong after a crash or disagree between instances:
+
+| view | what it answers |
+|---|---|
+| `fl.queue_age` | oldest ready job age per queue, broken out per priority tier |
+| `fl.fenced_writes` | how many times the fence has actually rejected a write |
+| `fl.reaper_lag` | how far behind the reaper is on leases that have already expired |
+
+Age is the latency signal to alert on. Depth says how much work is waiting but not
+whether any of it is moving. The fenced write count is published because a zero there
+means the mechanism has never fired, which needs investigating separately from whether
+it works.
+
 ## Where to look next
 
 `SCHEMA.md` is the data model and why it is shaped that way. `DECISIONS.md` is the
-trade-offs, including the ones that were measured and reversed. `API.md` is the
-endpoint reference. `DIAGRAMS.md` is generated from a live database by `make diagram`.
+trade-offs, including the ones that were measured and reversed. `BENCHMARKS.md` is
+every number, with the hardware it came from. `API.md` is the endpoint reference.
+`DIAGRAMS.md` is generated from a live database by `make diagram`.

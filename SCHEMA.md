@@ -179,10 +179,12 @@ partition is instant and leaves nothing behind.
 There are **no default partitions**, deliberately: a default partition silently swallows rows
 that belong to a day nobody created, and then blocks that day's partition from being created
 later. The scheduler cuts partitions thirty days ahead. If it stops for longer than that,
-inserts start failing, which is loud and preferable to silent misfiling.
+inserts start failing, which is at least visible; a default partition would absorb them
+into the wrong day instead.
 
-Hot data (events, logs) is kept seven days; the archives ninety. They are separate settings
-because an archive that cannot outlive the hot table is not an archive.
+Terminal jobs move to `jobs_archive` with their ledger after a day, dead lettered ones after
+thirty. Hot data (events, logs) is kept seven days; the archives ninety. They are separate
+settings because the archive has to outlive the hot table to be worth keeping.
 
 ## The constraints that carry the invariants
 
