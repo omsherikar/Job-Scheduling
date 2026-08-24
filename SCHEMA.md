@@ -4,6 +4,9 @@ Thirty one tables, plus a daily partition each for events, logs and the three ar
 The shape follows one rule: the database holds the truth about a job, and every process that
 touches one is expected to crash at the worst possible moment.
 
+`DIAGRAMS.md` has the entity diagram and the job state machine, both generated from a
+live database by `make diagram`.
+
 ## Who owns what
 
 ```

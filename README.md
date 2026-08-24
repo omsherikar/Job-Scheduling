@@ -6,6 +6,15 @@ reads a partial index over ready jobs, so what it costs barely follows the size 
 fifty times the rows costs under twice the reads, and the numbers are below. Jobs that reach a
 terminal state move to cold storage, which bounds the footprint rather than the latency.
 
+| | |
+|---|---|
+| `ARCHITECTURE.md` | the processes, the claim path, how a lost worker is handled |
+| `SCHEMA.md` | the tables, the keys, and why the shape is what it is |
+| `API.md` | all fifty endpoints, with roles and error semantics |
+| `DECISIONS.md` | the trade-offs, including the ones measured and reversed |
+| `TESTING.md` | what is covered, what is not, and how to run it |
+| `DIAGRAMS.md` | lifecycle and ER diagrams, generated from a live database |
+
 ## Running it
 
 Postgres runs in docker on 5433.
@@ -16,7 +25,7 @@ make migrate
 make check
 ```
 
-The services are four binaries, each taking `DATABASE_URL`:
+Four long-running binaries and a migrator, each taking `DATABASE_URL`:
 
 ```
 go run ./cmd/api        # http, default port 3001, API_PORT to change it
@@ -26,14 +35,26 @@ go run ./cmd/worker     # claims and runs jobs, see below
 go run ./cmd/migrate    # applies migrations, safe to run twice
 ```
 
+`cmd/worker` needs `WORKER_QUEUE` set to a queue id; it claims from one queue. Everything
+else has a default. `.env.example` lists the full set:
+
+| | |
+|---|---|
+| `DATABASE_URL` | every binary, the only one always required |
+| `TEST_DATABASE_URL` | the test suite, points at `postgres` so it can create databases |
+| `API_PORT`, `API_ADDR` | where the api listens, 3001 if unset |
+| `API_ALLOWED_ORIGINS` | comma separated, for websockets from another origin |
+| `WORKER_QUEUE` | the queue id a worker claims from, required |
+| `WORKER_CONCURRENCY` | how many jobs one worker runs at once, 4 if unset |
+| `ANTHROPIC_API_KEY` | the scheduler writes failure summaries only when this is set |
+
+Without `ANTHROPIC_API_KEY` every other sweep runs as usual and the summary sweep is a no-op.
+
 The dashboard lives in `web`:
 
 ```
 cd web && npm install && npm run dev
 ```
-
-The scheduler writes failure summaries only when `ANTHROPIC_API_KEY` is set. Without it every
-other sweep runs as usual and the summary sweep is a no-op.
 
 It proxies `/api` to `API_URL`, so http calls are same origin. The event stream connects
 straight to the API, which means two variables when the dashboard is not served from the
@@ -311,15 +332,21 @@ Age is the latency SLI; depth tells an operator nothing about whether a queue is
 fenced write count is worth publishing because a zero there means the mechanism has never
 fired, which is a different thing from it working.
 
-`make diagram` prints the state machine and the schema as mermaid, read from `job_transitions`
-and the catalog rather than kept up to date by hand.
-
-`SCHEMA.md` explains the tables: what the keys are, which deletes cascade and which refuse,
-where the design is deliberately denormalized and what that buys, and why the claim index is
-partial.
+`make diagram` regenerates `DIAGRAMS.md` from a migrated database: the job state machine read
+out of `job_transitions`, and the entities read out of the catalog. Neither is maintained by
+hand, so neither can drift from the schema it describes.
 
 ## Testing
+
+```
+make db-up
+make migrate
+make check
+```
 
 Tests need a running Postgres and `TEST_DATABASE_URL`. Each test clones its own database from
 a migrated template, so they run concurrently. Time is injectable: `set fl.testing = 'on'` and
 `set fl.now = '...'` move the clock, `set fl.jitter = 'off'` makes backoff deterministic.
+
+`TESTING.md` covers what the critical tests actually prove, and is explicit about where the
+coverage is thin.
