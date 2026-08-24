@@ -99,7 +99,7 @@ func TestShardSpread(t *testing.T) {
 	}
 }
 
-func TestShardShrinkWithWork(t *testing.T) {
+func TestShardResizeWithWork(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.New(t)
 
@@ -109,25 +109,28 @@ func TestShardShrinkWithWork(t *testing.T) {
 	seedJobs(t, ctx, pool, projectID, queueID, policyID, 200)
 
 	reqs := claimReqs(t, ctx, pool, projectID, queueID, 12, 1)
-	_, errs := drainClaims(ctx, pool, reqs)
+	res, errs := drainClaims(ctx, pool, reqs)
 	failOnClaimError(t, errs)
 
-	counts := shardCounts(t, ctx, pool, queueID)
-	top := 0
-	for shard, n := range counts {
-		if n > 0 && shard > top {
-			top = shard
+	for _, want := range []int{2, 8} {
+		if err := setShards(t, ctx, pool, queueID, want); err == nil {
+			t.Errorf("resize to %d: err = nil, want error", want)
 		}
 	}
-	if top == 0 {
-		t.Fatalf("no work above shard 0, counts = %v", counts)
+
+	for i, r := range res {
+		for _, c := range r {
+			exec, err := jobs.Start(ctx, pool, c.ID, c.Fence, reqs[i].WorkerID)
+			testdb.Must(t, err)
+			testdb.Must(t, jobs.Complete(ctx, pool, c.ID, c.Fence, exec.ID))
+		}
 	}
 
-	if err := setShards(t, ctx, pool, queueID, top); err == nil {
-		t.Fatalf("shrink to %d succeeded while shard %d holds work", top, top)
+	if err := setShards(t, ctx, pool, queueID, 8); err != nil {
+		t.Fatalf("resize on a drained queue: %v", err)
 	}
-	if err := setShards(t, ctx, pool, queueID, top+1); err != nil {
-		t.Fatalf("shrink to %d: %v", top+1, err)
+	if n := len(shardCounts(t, ctx, pool, queueID)); n != 8 {
+		t.Errorf("shard rows = %d, want 8", n)
 	}
 }
 

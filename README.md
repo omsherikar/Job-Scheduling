@@ -139,8 +139,12 @@ difference. At a hundred and twenty eight the row lock is the bottleneck and eig
 about two and a half times the admissions. A second run of the same measurement put the
 hundred and twenty eight row at 265, 595, 694 and 1159. The multiplier moves; the shape does not.
 
-Leave it at 1 unless a queue is measurably starved on admission. Raising `shards` is always
-allowed. Lowering it is refused while a shard being removed still holds a running job.
+Leave it at 1 unless a queue is measurably starved on admission.
+
+`shards` can only change while the queue holds no running job, and the database refuses the
+change otherwise. Splitting a counter that is already at its limit would hand the new shards a
+full allowance each while the old one still holds every slot it lent, and the cap would be
+exceeded for as long as those jobs ran. Pause the queue, let it drain, then resize.
 
 ### Failure summaries
 

@@ -106,6 +106,10 @@ splits it. `queues.shards` says how many rows there are and `fl.shard_slots` div
 lent a job its slot so the completion returns it to the same one. A queue at the default of
 one shard has exactly the single row it had before.
 
+The number of shards is fixed while a queue has work in flight. A resize redraws every shard's
+allowance, and doing that under load would let the new shards admit against slots the old ones
+had already lent out.
+
 **`jobs.pending_deps`** counts unfinished parents. Same trade: without it, deciding whether a
 job is runnable means joining `job_dependencies` on every promotion sweep. With it, the
 promoter's partial index can carry `pending_deps = 0` in its predicate and never look at the

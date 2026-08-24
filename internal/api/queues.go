@@ -201,7 +201,7 @@ func (s *Server) updateQueue(ctx context.Context, tx pgx.Tx, r *http.Request, sc
 		return result{}, conflict("queue name already used in this project")
 	}
 	if isInUse(err) {
-		return result{}, conflict("shards being removed still hold running jobs")
+		return result{}, conflict("shards cannot change while the queue holds running jobs")
 	}
 	if isCheck(err) {
 		return result{}, badRequest("queue values out of range")
