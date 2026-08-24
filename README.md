@@ -69,6 +69,19 @@ every parent finishes. Dead lettering a parent cancels its descendants, and repl
 whose descendants were cancelled is refused rather than silently reviving them. Cycles are
 rejected at submission.
 
+A recurring job is a schedule on a queue: `POST /queues/{id}/schedules` with a five field cron
+expression and a timezone, and the cron materialiser turns each tick into an ordinary job.
+
+```
+{"name": "nightly", "cron_expr": "0 3 * * *", "timezone": "America/New_York", "job_type": "report"}
+```
+
+The expression and the timezone are checked when you write them, not when the tick is due, and
+`next_run_at` comes back computed. `overlap_policy` decides whether a tick fires while the last
+one is still running, `catchup_policy` decides what a gap produces when the scheduler was down,
+and a tick fires exactly once because `(schedule_id, scheduled_for)` is unique on `jobs`.
+`POST /schedules/{id}/pause` and `/resume` stop and start it without deleting it.
+
 `GET /jobs` filters on `status`, `type`, `queue` and pages on an opaque cursor. `GET /jobs/{id}`
 returns the job, every attempt with its logs, the live lease with whatever progress the handler
 reported, and the job's parents and children.

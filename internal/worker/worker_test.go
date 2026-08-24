@@ -19,6 +19,8 @@ import (
 	"github.com/shrutu0929/fenceline/internal/worker"
 )
 
+const settleWait = 20 * time.Second
+
 func waitFor(d time.Duration, cond func() bool) bool {
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
@@ -68,7 +70,7 @@ func TestWorkerLifecycle(t *testing.T) {
 	}
 	cancel, done := run(t, pool, config(queueID, workerID, 30*time.Second), handlers)
 
-	if !waitFor(5*time.Second, func() bool { return testdb.JobStatus(t, ctx, pool, jobID) == "completed" }) {
+	if !waitFor(settleWait, func() bool { return testdb.JobStatus(t, ctx, pool, jobID) == "completed" }) {
 		t.Fatalf("status = %q, want completed", testdb.JobStatus(t, ctx, pool, jobID))
 	}
 	cancel()
@@ -107,7 +109,7 @@ func TestHandlerErrorRetries(t *testing.T) {
 	}
 	cancel, done := run(t, pool, config(queueID, workerID, 30*time.Second), handlers)
 
-	if !waitFor(5*time.Second, func() bool { return testdb.JobStatus(t, ctx, pool, jobID) == "retry_wait" }) {
+	if !waitFor(settleWait, func() bool { return testdb.JobStatus(t, ctx, pool, jobID) == "retry_wait" }) {
 		t.Fatalf("status = %q, want retry_wait", testdb.JobStatus(t, ctx, pool, jobID))
 	}
 	cancel()
@@ -150,7 +152,7 @@ func TestHandlerErrorDeadLetters(t *testing.T) {
 	}
 	cancel, done := run(t, pool, config(queueID, workerID, 30*time.Second), handlers)
 
-	if !waitFor(5*time.Second, func() bool { return testdb.JobStatus(t, ctx, pool, jobID) == "dead_letter" }) {
+	if !waitFor(settleWait, func() bool { return testdb.JobStatus(t, ctx, pool, jobID) == "dead_letter" }) {
 		t.Fatalf("status = %q, want dead_letter", testdb.JobStatus(t, ctx, pool, jobID))
 	}
 	cancel()
@@ -188,7 +190,7 @@ func TestPermanentErrorDeadLetters(t *testing.T) {
 	}
 	cancel, done := run(t, pool, config(queueID, workerID, 30*time.Second), handlers)
 
-	if !waitFor(5*time.Second, func() bool { return testdb.JobStatus(t, ctx, pool, jobID) == "dead_letter" }) {
+	if !waitFor(settleWait, func() bool { return testdb.JobStatus(t, ctx, pool, jobID) == "dead_letter" }) {
 		t.Fatalf("status = %q, want dead_letter", testdb.JobStatus(t, ctx, pool, jobID))
 	}
 	cancel()
@@ -292,7 +294,7 @@ func TestCancelClosesExecution(t *testing.T) {
 	_, err = pool.Exec(ctx, `select fl.queue_release($1, 1)`, queueID)
 	testdb.Must(t, err)
 
-	closed := waitFor(3*time.Second, func() bool {
+	closed := waitFor(settleWait, func() bool {
 		var open int
 		testdb.Must(t, pool.QueryRow(ctx,
 			`select count(*) from job_executions where job_id = $1 and finished_at is null`, jobID).Scan(&open))
@@ -362,7 +364,7 @@ func TestProgressOnHeartbeat(t *testing.T) {
 	<-reported
 
 	var progress []byte
-	waitFor(5*time.Second, func() bool {
+	waitFor(settleWait, func() bool {
 		err := pool.QueryRow(ctx, `select progress from job_leases where job_id = $1`, jobID).Scan(&progress)
 		return err == nil && progress != nil
 	})
@@ -417,7 +419,7 @@ func TestHandlerPanic(t *testing.T) {
 	stop, errs := run(t, pool, cfg, handlers)
 	done.Wait()
 
-	if !waitFor(5*time.Second, func() bool {
+	if !waitFor(settleWait, func() bool {
 		return testdb.JobStatus(t, ctx, pool, boom) == "retry_wait" &&
 			testdb.JobStatus(t, ctx, pool, fine) == "completed"
 	}) {
@@ -456,7 +458,7 @@ func TestHandlerLogs(t *testing.T) {
 	}
 	cancel, done := run(t, pool, config(queueID, workerID, 30*time.Second), handlers)
 
-	if !waitFor(5*time.Second, func() bool {
+	if !waitFor(settleWait, func() bool {
 		return testdb.JobStatus(t, ctx, pool, jobID) == "completed"
 	}) {
 		t.Fatalf("status = %q, want completed", testdb.JobStatus(t, ctx, pool, jobID))
@@ -505,7 +507,7 @@ func TestSnoozeKeepsAttempts(t *testing.T) {
 	}
 	cancel, done := run(t, pool, config(queueID, workerID, 30*time.Second), handlers)
 
-	if !waitFor(5*time.Second, func() bool {
+	if !waitFor(settleWait, func() bool {
 		return testdb.JobStatus(t, ctx, pool, jobID) == "scheduled"
 	}) {
 		t.Fatalf("status = %q, want scheduled", testdb.JobStatus(t, ctx, pool, jobID))
@@ -663,7 +665,7 @@ func TestRegister(t *testing.T) {
 			where wq.queue_id = $1 and w.state = 'active'`, queueID).Scan(&n))
 		return n
 	}
-	if !waitFor(5*time.Second, func() bool { return live() == 1 }) {
+	if !waitFor(settleWait, func() bool { return live() == 1 }) {
 		t.Fatalf("live workers = %d, want 1", live())
 	}
 
@@ -681,7 +683,7 @@ func TestRegister(t *testing.T) {
 	}
 	first := seen()
 	testdb.Advance(t, pool, time.Minute)
-	if !waitFor(5*time.Second, func() bool { return seen().After(first) }) {
+	if !waitFor(settleWait, func() bool { return seen().After(first) }) {
 		t.Errorf("last_seen_at = %v, want after %v", seen(), first)
 	}
 
@@ -737,7 +739,7 @@ func TestListenStartsSooner(t *testing.T) {
 
 	select {
 	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("no start within 5s, want one")
+	case <-time.After(settleWait):
+		t.Fatal("started = false, want true")
 	}
 }

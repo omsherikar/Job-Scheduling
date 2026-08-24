@@ -11,7 +11,7 @@ func TestSpringForward(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := time.Date(2024, 3, 9, 12, 0, 0, 0, loc)
-	tick, err := nextTick("0 12 * * *", "America/New_York", after)
+	tick, err := NextTick("0 12 * * *", "America/New_York", after)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestFallBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := time.Date(2024, 11, 2, 12, 0, 0, 0, loc)
-	tick, err := nextTick("0 12 * * *", "America/New_York", after)
+	tick, err := NextTick("0 12 * * *", "America/New_York", after)
 	if err != nil {
 		t.Fatal(err)
 	}

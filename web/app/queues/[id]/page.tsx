@@ -7,6 +7,7 @@ import { duration, millis } from "@/lib/format";
 import { QueueStats, reasons, starving } from "@/lib/health";
 import { Latency, Minute, Throughput } from "../../chart";
 import Config from "./config";
+import Schedules from "./schedules";
 
 export default function Queue({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -49,14 +50,19 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
       <h1>{stats.queue.name}</h1>
 
       <div className="controls">
-        <button onClick={toggle}>{stats.queue.paused ? "resume" : "pause"}</button>
+        <button onClick={toggle}>
+          {stats.queue.paused ? "resume" : "pause"}
+        </button>
         <Config queue={stats.queue} onSaved={load} />
         <Link href={`/jobs?queue=${id}`}>jobs in this queue</Link>
       </div>
 
       <h2>why</h2>
       {reasons(stats).map((r) => (
-        <div key={r.text} className={r.level === "ok" ? "reason clear" : "reason"}>
+        <div
+          key={r.text}
+          className={r.level === "ok" ? "reason clear" : "reason"}
+        >
           <span className={r.level}>{r.text}</span>
         </div>
       ))}
@@ -90,8 +96,9 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
       {starved && (
         <div className="reason">
           <span className="bad">
-            priority {starved.priority} has waited {duration(starved.oldest_ready_seconds)} while
-            higher tiers drain, which is starvation
+            priority {starved.priority} has waited{" "}
+            {duration(starved.oldest_ready_seconds)} while higher tiers drain,
+            which is starvation
           </span>
         </div>
       )}
@@ -116,6 +123,8 @@ export default function Queue({ params }: { params: Promise<{ id: string }> }) {
         </table>
       </div>
       {stats.tiers.length === 0 && <p className="dim">nothing ready</p>}
+
+      <Schedules queueID={id} />
 
       <h2>throughput, last hour</h2>
       <Throughput series={series} />

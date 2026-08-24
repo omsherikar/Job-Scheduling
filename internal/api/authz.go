@@ -245,6 +245,18 @@ join projects p on p.id = j.project_id
 join org_members m on m.org_id = p.org_id and m.user_id = $2
 where j.id = $1`
 
+const scheduleScopeSQL = `
+select q.project_id, p.org_id, m.role
+from schedules s
+join queues q on q.id = s.queue_id
+join projects p on p.id = q.project_id
+join org_members m on m.org_id = p.org_id and m.user_id = $2
+where s.id = $1`
+
+func (s *Server) scheduleScope(ctx context.Context, tx pgx.Tx, uid, id uuid.UUID) (scope, bool, error) {
+	return scopeBy(ctx, tx, scheduleScopeSQL, uid, id)
+}
+
 func (s *Server) jobScope(ctx context.Context, tx pgx.Tx, uid, id uuid.UUID) (scope, bool, error) {
 	return scopeBy(ctx, tx, jobScopeSQL, uid, id)
 }

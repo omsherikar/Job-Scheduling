@@ -228,6 +228,13 @@ func (s *Server) setPaused(ctx context.Context, tx pgx.Tx, sc scope, paused bool
 	return result{body: map[string]any{"id": sc.entityID, "paused": got}}, nil
 }
 
+func derefString(p *string, d string) string {
+	if p != nil {
+		return *p
+	}
+	return d
+}
+
 func derefFloat(p *float64, d float64) float64 {
 	if p != nil {
 		return *p

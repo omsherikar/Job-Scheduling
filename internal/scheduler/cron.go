@@ -46,7 +46,7 @@ const disableScheduleSQL = `update schedules set enabled = false where id = $1`
 
 const scheduleErrorEventSQL = `select fl.emit('schedule.error', $1, $2, '{}'::jsonb)`
 
-func nextTick(expr, tz string, after time.Time) (time.Time, error) {
+func NextTick(expr, tz string, after time.Time) (time.Time, error) {
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
 		return time.Time{}, err
@@ -111,7 +111,7 @@ sched:
 		for t := d.nextRunAt; !t.After(now); {
 			last = t
 			count++
-			nt, err := nextTick(d.expr, d.tz, t)
+			nt, err := NextTick(d.expr, d.tz, t)
 			if err != nil {
 				if err := disableSchedule(ctx, tx, d.id, d.projectID); err != nil {
 					return 0, err
@@ -123,7 +123,7 @@ sched:
 				break
 			}
 		}
-		nextFuture, err := nextTick(d.expr, d.tz, last)
+		nextFuture, err := NextTick(d.expr, d.tz, last)
 		if err != nil {
 			if err := disableSchedule(ctx, tx, d.id, d.projectID); err != nil {
 				return 0, err

@@ -52,6 +52,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /queues/{id}/pause", s.guard(member, "queue.pause", "queue", byPath("id", s.queueScope), s.pauseQueue))
 	mux.HandleFunc("POST /queues/{id}/resume", s.guard(member, "queue.resume", "queue", byPath("id", s.queueScope), s.resumeQueue))
 
+	mux.HandleFunc("POST /queues/{id}/schedules", s.guard(admin, "schedule.create", "schedule", byPath("id", s.queueScope), s.createSchedule))
+	mux.HandleFunc("GET /queues/{id}/schedules", s.guard(viewer, "", "schedule", byPath("id", s.queueScope), s.listSchedules))
+	mux.HandleFunc("GET /schedules/{id}", s.guard(viewer, "", "schedule", byPath("id", s.scheduleScope), s.getSchedule))
+	mux.HandleFunc("PATCH /schedules/{id}", s.guard(admin, "schedule.update", "schedule", byPath("id", s.scheduleScope), s.updateSchedule))
+	mux.HandleFunc("DELETE /schedules/{id}", s.guard(admin, "schedule.delete", "schedule", byPath("id", s.scheduleScope), s.deleteSchedule))
+	mux.HandleFunc("POST /schedules/{id}/pause", s.guard(member, "schedule.pause", "schedule", byPath("id", s.scheduleScope), s.pauseSchedule))
+	mux.HandleFunc("POST /schedules/{id}/resume", s.guard(member, "schedule.resume", "schedule", byPath("id", s.scheduleScope), s.resumeSchedule))
+
 	mux.HandleFunc("POST /queues/{id}/jobs", s.guard(member, "job.submit", "job", byPath("id", s.queueScope), s.submitJob))
 	mux.HandleFunc("POST /queues/{id}/jobs/batch", s.guard(member, "job.submit_batch", "batch", byPath("id", s.queueScope), s.submitBatch))
 	mux.HandleFunc("GET /jobs", s.guard(viewer, "", "job", s.byProjectOrQueue, s.listJobs))
