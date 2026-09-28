@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shrutu0929/fenceline/internal/api"
-	"github.com/shrutu0929/fenceline/internal/db"
+	"github.com/omsherikar/fenceline/internal/api"
+	"github.com/omsherikar/fenceline/internal/db"
 )
 
 func main() {

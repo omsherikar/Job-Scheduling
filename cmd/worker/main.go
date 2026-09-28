@@ -13,8 +13,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/shrutu0929/fenceline/internal/db"
-	"github.com/shrutu0929/fenceline/internal/worker"
+	"github.com/omsherikar/fenceline/internal/db"
+	"github.com/omsherikar/fenceline/internal/worker"
 )
 
 var handlers = map[string]worker.Handler{

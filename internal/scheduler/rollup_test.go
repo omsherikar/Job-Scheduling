@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shrutu0929/fenceline/internal/jobs"
-	"github.com/shrutu0929/fenceline/internal/scheduler"
-	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/jobs"
+	"github.com/omsherikar/fenceline/internal/scheduler"
+	"github.com/omsherikar/fenceline/internal/testdb"
 )
 
 func TestRollup(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/shrutu0929/fenceline/internal/jobs"
+	"github.com/omsherikar/fenceline/internal/jobs"
 )
 
 type submitReq struct {

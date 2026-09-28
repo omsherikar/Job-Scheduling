@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/shrutu0929/fenceline/internal/scheduler"
-	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/scheduler"
+	"github.com/omsherikar/fenceline/internal/testdb"
 )
 
 func TestScheduleLifecycle(t *testing.T) {

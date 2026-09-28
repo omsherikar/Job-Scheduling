@@ -14,8 +14,8 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/shrutu0929/fenceline/internal/api"
-	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/api"
+	"github.com/omsherikar/fenceline/internal/testdb"
 )
 
 type streamFrame struct {

@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/shrutu0929/fenceline/internal/db"
+	"github.com/omsherikar/fenceline/internal/db"
 )
 
 const (

@@ -38,7 +38,7 @@ return an empty table rather than an error.
 ## 2. Clone
 
 ```powershell
-git clone https://github.com/shrutu0929/Job-Scheduling.git
+git clone https://github.com/omsherikar/Job-Scheduling.git
 cd Job-Scheduling
 ```
 

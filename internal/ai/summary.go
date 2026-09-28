@@ -10,7 +10,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/shrutu0929/fenceline/internal/jobs"
+	"github.com/omsherikar/fenceline/internal/jobs"
 )
 
 const Model = "claude-opus-5"

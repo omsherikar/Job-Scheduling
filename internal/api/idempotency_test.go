@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/testdb"
 )
 
 func TestIdempotency(t *testing.T) {

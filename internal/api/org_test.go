@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/testdb"
 )
 
 func TestOrgScope(t *testing.T) {

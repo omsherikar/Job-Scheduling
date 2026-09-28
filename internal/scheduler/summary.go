@@ -6,8 +6,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/shrutu0929/fenceline/internal/ai"
-	"github.com/shrutu0929/fenceline/internal/jobs"
+	"github.com/omsherikar/fenceline/internal/ai"
+	"github.com/omsherikar/fenceline/internal/jobs"
 )
 
 const staleSummariesSQL = `

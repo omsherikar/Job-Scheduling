@@ -116,7 +116,7 @@ PowerShell route is in [RUNBOOK.md](RUNBOOK.md).
 ## Quick setup
 
 ```
-git clone https://github.com/shrutu0929/Job-Scheduling.git
+git clone https://github.com/omsherikar/Job-Scheduling.git
 cd Job-Scheduling
 
 make db-up

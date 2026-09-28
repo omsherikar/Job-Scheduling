@@ -13,10 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/shrutu0929/fenceline/internal/jobs"
-	"github.com/shrutu0929/fenceline/internal/scheduler"
-	"github.com/shrutu0929/fenceline/internal/testdb"
-	"github.com/shrutu0929/fenceline/internal/worker"
+	"github.com/omsherikar/fenceline/internal/jobs"
+	"github.com/omsherikar/fenceline/internal/scheduler"
+	"github.com/omsherikar/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/worker"
 )
 
 const settleWait = 20 * time.Second

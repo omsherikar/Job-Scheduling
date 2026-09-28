@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shrutu0929/fenceline/internal/db"
-	"github.com/shrutu0929/fenceline/internal/scheduler"
+	"github.com/omsherikar/fenceline/internal/db"
+	"github.com/omsherikar/fenceline/internal/scheduler"
 )
 
 func main() {

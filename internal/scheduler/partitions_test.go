@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/shrutu0929/fenceline/internal/scheduler"
-	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/scheduler"
+	"github.com/omsherikar/fenceline/internal/testdb"
 )
 
 func TestPartitionDrop(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shrutu0929/fenceline/internal/jobs"
+	"github.com/omsherikar/fenceline/internal/jobs"
 )
 
 func TestLedger(t *testing.T) {

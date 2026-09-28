@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/shrutu0929/fenceline/migrations"
+	"github.com/omsherikar/fenceline/migrations"
 )
 
 const migrateLock = 4265087232

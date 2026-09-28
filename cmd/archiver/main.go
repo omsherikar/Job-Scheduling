@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/shrutu0929/fenceline/internal/archiver"
-	"github.com/shrutu0929/fenceline/internal/db"
+	"github.com/omsherikar/fenceline/internal/archiver"
+	"github.com/omsherikar/fenceline/internal/db"
 )
 
 func main() {

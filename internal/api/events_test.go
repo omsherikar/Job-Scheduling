@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/testdb"
 )
 
 func TestEventReplay(t *testing.T) {

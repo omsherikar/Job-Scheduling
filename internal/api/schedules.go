@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/shrutu0929/fenceline/internal/scheduler"
+	"github.com/omsherikar/fenceline/internal/scheduler"
 )
 
 type scheduleView struct {

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shrutu0929/fenceline/internal/testdb"
-	"github.com/shrutu0929/fenceline/internal/worker"
+	"github.com/omsherikar/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/worker"
 )
 
 func TestQueueHealthTiers(t *testing.T) {

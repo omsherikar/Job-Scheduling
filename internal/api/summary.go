@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/shrutu0929/fenceline/internal/ai"
-	"github.com/shrutu0929/fenceline/internal/jobs"
+	"github.com/omsherikar/fenceline/internal/ai"
+	"github.com/omsherikar/fenceline/internal/jobs"
 )
 
 type failureView struct {

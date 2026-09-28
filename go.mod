@@ -1,4 +1,4 @@
-module github.com/shrutu0929/fenceline
+module github.com/omsherikar/fenceline
 
 go 1.25.0
 

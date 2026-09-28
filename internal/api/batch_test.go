@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/shrutu0929/fenceline/internal/testdb"
+	"github.com/omsherikar/fenceline/internal/testdb"
 )
 
 func jobCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, queueID uuid.UUID) int {
