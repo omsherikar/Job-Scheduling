@@ -147,8 +147,6 @@ busy.
 
 ## Before committing
 
-`.claude/agents/slop-check` reads the diff and flags anything that reads as
-machine-written: comments that should not exist, test names that are sentences,
-failures that narrate instead of stating values. Run it before every commit; it has
-caught a vacuous assertion that could never fail and a test whose name promised more
-than it checked.
+Read the test diff for three things: an assertion that could never fail, a name that
+promises more than the assertions check, and a failure message that narrates instead
+of stating the values it saw. All three have turned up in this suite and been fixed.
